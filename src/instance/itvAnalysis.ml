@@ -474,6 +474,7 @@ let rec partial_evaluation orig_icfg source_name (global,spec,inputof,outputof) 
 	incr iter ;
 	(* should not sync here: inputof can become intentionally out of sync for computing gains *)
 	let prev_size = InterCfg.num_of_nonskip_nodes global.icfg in
+	let _ = prerr_endline (Printf.sprintf "=== prev_size : %d ===" prev_size) in
 	(** do partial evaluation one step *)
 	let false_conds (*: (Cil.location * bool) BatSet.t*) =
 		let nodes = InterCfg.nodesof global.icfg in
@@ -542,6 +543,36 @@ let compute_gains orig_icfg source_name target_branches (global, spec, inputof, 
 	List.sort (fun (_, n1, _) (_, n2, _) -> n2 - n1) lst
 
 
+let rec ask_question log_oc global branch2reduction =
+	let (target_branch_node, reduction, pe_info) =
+		try
+			prerr_endline "Line?:";
+  		let line = read_int () in 
+  		List.find (fun (target_branch_node, reduction, pe_info) -> 
+    			let target_branch_cmd = InterCfg.cmdof global.icfg target_branch_node in
+    			let loc = IntraCfg.Cmd.location_of target_branch_cmd in 
+    			loc.line = line 
+  			)	branch2reduction
+		with _ -> prerr_endline "Invalid line! The question of the highest gain is chosen."; List.hd branch2reduction   
+	in
+	let target_branch_cmd = InterCfg.cmdof global.icfg target_branch_node in
+	let answer = 
+  	match target_branch_cmd with 
+  	| IntraCfg.Cmd.Cassume (cond, loc, b) -> 	
+  		(let question = (Cil.UnOp (Cil.LNot, cond, Cil.typeOf cond)) in 
+			let _ = Printf.fprintf log_oc "\t%s at %s?" (CilHelper.s_exp question) (Cilglobal.s_location loc) in
+  		Printf.printf "%s at %s: %d ?\n" (CilHelper.s_exp question) (Cilglobal.s_location loc) reduction;
+  		try read_int () with _ -> -1) 
+		| _ -> assert false  
+	in
+	let _ = Printf.fprintf log_oc "\t%d" answer in
+	let reason =
+		 prerr_endline "Reason?:";
+		 try read_line () with _ -> " "
+	in
+	let _ = Printf.fprintf log_oc "\t%s" reason in
+	(target_branch_node, reduction, pe_info, answer, reason)
+	
 (** Collect constant conditional expressions from oracle runs and perform initial partial evaluation    
   NOTE: write to file source_name only for oracle runs
 	return 
@@ -587,7 +618,7 @@ let ui_chisel_init source_name (global,spec,inputof,outputof) =
 			with _ -> branch2vals  
 		) BatMap.empty lines
 	in 
-	let _ = if ((BatMap.cardinal branch2vals) = 0) then failwith "Fail to instrument the program!" in 
+	(* let _ = if ((BatMap.cardinal branch2vals) = 0) then failwith "Fail to instrument the program!" in *)
 	prerr_endline (Printf.sprintf "=== #. instrumented_branches: %d === \n" (BatMap.cardinal branch2vals));
 	(** revert the original program back *)
 	let global = Utils.load_global global_filename in
@@ -671,25 +702,8 @@ let rec ui_chisel log_oc source_name orig_icfg (iter,already_covered,branch2vals
   	in
 		Printf.fprintf log_oc "\t%d\t%d\t%.1f" (List.length branch2reduction) max_gain ((float_of_int sum_gain) /. (float_of_int (List.length branch2reduction))) 
 	in
-	(* ask the user the topmost question *)
-	let (target_branch_node, reduction, pe_info) = List.hd branch2reduction in 
-	let target_branch_cmd = InterCfg.cmdof global.icfg target_branch_node in
-	let answer = 
-  	match target_branch_cmd with 
-  	| IntraCfg.Cmd.Cassume (cond, loc, b) -> 	
-  		(let question = (Cil.UnOp (Cil.LNot, cond, Cil.typeOf cond)) in 
-			let _ = Printf.fprintf log_oc "\t%s at %s?" (CilHelper.s_exp question) (Cilglobal.s_location loc) in
-  		Printf.printf "%s at %s: %d ?\n" (CilHelper.s_exp question) (Cilglobal.s_location loc) reduction;
-  		try read_int () with _ -> -1) 
-		| _ -> assert false  
-	in
-	let _ = Printf.fprintf log_oc "\t%d" answer in
-	let reason =
-		 prerr_endline "Reason?:";
-		 try read_line () with _ -> " "
-	in
-	let _ = Printf.fprintf log_oc "\t%s" reason in
-	
+	(* ask the user *)
+	let (target_branch_node, reduction, pe_info, answer, reason) = ask_question log_oc global branch2reduction in 
 	let already_covered = BatSet.add target_branch_node already_covered in
 	if answer = 1 then (* user confirms this likely invariant *)
 		let (global, spec, inputof, outputof) = pe_info in
