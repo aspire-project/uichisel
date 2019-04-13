@@ -474,7 +474,6 @@ let rec partial_evaluation orig_icfg source_name (global,spec,inputof,outputof) 
 	incr iter ;
 	(* should not sync here: inputof can become intentionally out of sync for computing gains *)
 	let prev_size = InterCfg.num_of_nonskip_nodes global.icfg in
-	let _ = prerr_endline (Printf.sprintf "=== prev_size : %d ===" prev_size) in
 	(** do partial evaluation one step *)
 	let false_conds (*: (Cil.location * bool) BatSet.t*) =
 		let nodes = InterCfg.nodesof global.icfg in
@@ -618,7 +617,7 @@ let ui_chisel_init source_name (global,spec,inputof,outputof) =
 			with _ -> branch2vals  
 		) BatMap.empty lines
 	in 
-	(* let _ = if ((BatMap.cardinal branch2vals) = 0) then failwith "Fail to instrument the program!" in *)
+	let _ = if ((BatMap.cardinal branch2vals) = 0) then failwith "Fail to instrument the program!" in
 	prerr_endline (Printf.sprintf "=== #. instrumented_branches: %d === \n" (BatMap.cardinal branch2vals));
 	(** revert the original program back *)
 	let global = Utils.load_global global_filename in
