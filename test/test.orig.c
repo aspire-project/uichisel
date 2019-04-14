@@ -1,6 +1,28 @@
-extern char *optarg; 
+extern char *optarg;
+extern
+    __attribute__((__nothrow__)) int(__attribute__((__nonnull__(1), __leaf__))
+                                     chown)(char const *__file, unsigned int __owner,
+                                            unsigned int __group);
+int make_path(unsigned int owner, unsigned int group) {
+	int tmp;
+	char* basename_dir = "";
+	if (owner != 4294967295U) {
+		goto _L___1;
+	} else {
+		if (group != 4294967295U) {
+_L___1 : { tmp = chown((char const *)basename_dir, owner, group); }
+		 if (tmp) {
+			 {
+				 exit(-1);
+			 }
+		 }
+		}
+	}
+}
+static int owner = 0;
+static int group = 0;
 static int bz_config_ok(void) {             
-                                            
+
   {
     if (sizeof(int) != 4UL) {               
       return (0);                           
@@ -52,7 +74,7 @@ int main(int argc , char **argv )
   {
   {
   tmp = rand();
-  p = tmp;
+  p = make_path(1,1);
   c = 0;
   b = 0;
   }
