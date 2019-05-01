@@ -35,11 +35,11 @@ val find_opt : 'a -> ('a, 'b) BatMap.t -> 'b option
 val find_def : 'a -> ('a, 'b) BatMap.t -> 'b -> 'b
 val link_by_sep : bytes -> bytes -> bytes -> bytes
 val string_of_list :
-  ?first:bytes ->
-  ?last:bytes -> ?sep:bytes -> ('a -> bytes) -> 'a list -> bytes
+  ?first:string ->
+  ?last:string -> ?sep:string -> ('a -> string) -> 'a list -> string
 val string_of_set :
-  ?first:bytes ->
-  ?last:bytes -> ?sep:bytes -> ('a -> bytes) -> 'a BatSet.t -> bytes
+  ?first:string ->
+  ?last:string -> ?sep:string -> ('a -> string) -> 'a BatSet.t -> string
 val string_of_map :
   ?first:bytes ->
   ?last:bytes ->

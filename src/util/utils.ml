@@ -86,6 +86,11 @@ let save_with_excludes cil fname exclude_locs =
   dumpFile (new excludeCilPrinterClass exclude_locs) oc cil;
   close_out oc
 
+let save_text str fname =
+  (try Unix.unlink fname with _ -> ());
+  let oc = open_out fname in
+  output_string oc str;
+  close_out oc
 												
 let debug_out = ref stderr 
 (**/**)
@@ -178,3 +183,36 @@ let oracle fname =
   in
 	let _ = Unix.close garbage in
   r
+
+let lpsolve fname =
+	let lpsolver = "glpsol" in 
+	let outfile = !Options.marshal_dir ^ "/lp.out" in 
+	let garbage =
+		let filename = "/dev/null" in
+		Unix.openfile filename [Unix.O_CREAT; Unix.O_WRONLY] 0o640
+	in
+  let _ = Unix.create_process lpsolver [|lpsolver; "-o"; outfile; "--lp"; fname|] Unix.stdin garbage garbage in
+  let r = match snd (Unix.wait ()) with
+    | Unix.WEXITED 0 -> true
+    | _ -> false
+  in
+	let _ = Unix.close garbage in
+	if (not r) then failwith "Failed to invoke ILP solver!"
+	else
+		let lines = get_lines outfile in 
+ (* 139 e_main_95    *              1             0             1
+    140 e_main_97    *              1             0             1
+    141 e_main_99    *              0             0             1
+    142 e_main_101   *              0             0             1
+	*)
+		List.fold_left (fun broken_branches line ->
+			let tokens = List.filter (fun x -> (String.compare x "") != 0) (Str.split (Str.regexp " ") line) in
+			(* let _ = prerr_endline (string_of_list id tokens) in    *)
+			if (List.length tokens) = 6 && ((List.nth tokens 1).[0] = 'e') && (List.nth tokens 3) = "1" then
+				let tokens' = Str.split (Str.regexp "_") (List.nth tokens 1) in 
+				let _ = assert ((List.length tokens') = 3) in 
+				let pid = List.nth tokens' 1 in
+				let nid = int_of_string (List.nth tokens' 2) in
+				BatSet.add (InterCfg.Node.make pid (IntraCfg.Node.from_id nid)) broken_branches   	 
+			else broken_branches
+		) BatSet.empty lines  

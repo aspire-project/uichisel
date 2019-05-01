@@ -42,7 +42,9 @@ module Node = struct
     | ENTRY
     | EXIT -> -1
     | Node id -> id
-
+	
+	let from_id id = Node id 
+	
   let to_string : t -> string
   =fun n ->
     match n with

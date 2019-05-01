@@ -14,7 +14,9 @@ module Node : sig
   val entry : t
   val exit : t
   val id : t -> int
+	val from_id : int -> t
 	val init : unit -> unit
+	val to_string : t -> string
 end
 
 module NodeSet : BatSet.S with type elt = Node.t

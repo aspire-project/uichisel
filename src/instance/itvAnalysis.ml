@@ -687,6 +687,19 @@ let rec ui_chisel log_oc source_name orig_icfg (iter,already_covered,branch2vals
 	prerr_endline (Printf.sprintf "======== UI CHISEL : iteration - %d (size: %d, #questions: %d) =========" iter curr_size (BatSet.cardinal target_branches)); 	
 	
 	(* print all questions and gains *)
+	let optimal_questions = Optimalcut.get_optimal_questions global target_branches in
+	let _ = 
+		prerr_endline "======== Optimal Questions ========";
+		BatSet.iter (fun target_branch_node ->
+			let target_branch_cmd = InterCfg.cmdof global.icfg target_branch_node in
+			match target_branch_cmd with 
+  		| IntraCfg.Cmd.Cassume (cond, loc, b) ->
+				let question = (Cil.UnOp (Cil.LNot, cond, Cil.typeOf cond)) in
+				prerr_endline (Printf.sprintf "%s at %s?" (CilHelper.s_exp question) (Cilglobal.s_location loc))
+			| _ -> ()
+		) optimal_questions;
+		prerr_endline "=====================================\n";
+	in
 	let _ = 
 		prerr_endline "======== Questions and Gains ========";
 		List.iter (fun (target_branch_node, reduction, _) ->
