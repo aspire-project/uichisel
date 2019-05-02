@@ -662,7 +662,7 @@ let ui_chisel_init source_name (global,spec,inputof,outputof) =
 			with _ -> branch2vals  
 		) BatMap.empty lines
 	in 
-	let _ = if ((BatMap.cardinal branch2vals) = 0) then failwith "Fail to instrument the program!" in
+	let _ = if ((BatMap.cardinal branch2vals) = 0) && (not !Options.noinstrument) then failwith "Fail to instrument the program!" in
 	prerr_endline (Printf.sprintf "=== #. instrumented_branches: %d === \n" (BatMap.cardinal branch2vals));
 	(** revert the original program back *)
 	let global = Utils.load_global global_filename in

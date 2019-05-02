@@ -83,9 +83,11 @@ let compile = ref "gcc"
 let oracle = ref "./test.sh"
 let greedy = ref false 
 let ilp_timeout = ref 10 
+let noinstrument = ref false 
 
 let opts =
   [
+	("-noinstrument", (Arg.Set noinstrument), "No use of test cases to identify likely invariants");
 	("-ilp_timeout", (Arg.Int (fun x -> ilp_timeout := x)), "Timeout threshold (sec) for each invocation to ILP solver");
 	("-greedy", (Arg.Set greedy), "Greedy strategy for user interaction");
   ("-il", (Arg.Set il), "Show the input program in IL");
