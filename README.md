@@ -17,7 +17,7 @@ The followings show an example use.
 ```sh
 $ cd test
 $ cp test.orig.c test.c 
-$ ../bin/sparrow test.c 
+$ ../bin/sparrow -greedy test.c 
 ```
 You will see all questions and their gains. A question of the highest gain is posed.
 ```

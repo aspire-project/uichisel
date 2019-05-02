@@ -97,7 +97,7 @@ let remove_function : pid -> t -> t
 
 let cfgof : t -> pid -> IntraCfg.t
 =fun g pid ->
-  try BatMap.find pid g.cfgs with Not_found -> prerr_endline ("InterCfg.cfgof "^pid); raise Not_found
+  try BatMap.find pid g.cfgs with Not_found -> (*prerr_endline ("InterCfg.cfgof "^pid); *)raise Not_found
 
 let cmdof : t -> Node.t -> IntraCfg.cmd
 =fun g (pid,node) -> IntraCfg.find_cmd node (cfgof g pid)

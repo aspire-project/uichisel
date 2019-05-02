@@ -81,3 +81,5 @@ val marshal_dir : string ref
 val compile: string ref
 val oracle: string ref
 val opts : (string * Arg.spec * string) list
+val greedy : bool ref
+val ilp_timeout : int ref

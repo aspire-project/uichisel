@@ -81,9 +81,13 @@ let int_overflow = ref false
 
 let compile = ref "gcc"
 let oracle = ref "./test.sh"
+let greedy = ref false 
+let ilp_timeout = ref 10 
 
 let opts =
   [
+	("-ilp_timeout", (Arg.Int (fun x -> ilp_timeout := x)), "Timeout threshold (sec) for each invocation to ILP solver");
+	("-greedy", (Arg.Set greedy), "Greedy strategy for user interaction");
   ("-il", (Arg.Set il), "Show the input program in IL");
   ("-cfg", (Arg.Set cfg), "Print Cfg");
   ("-dug", (Arg.Set dug), "Print Def-Use graph");

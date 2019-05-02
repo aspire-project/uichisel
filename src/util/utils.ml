@@ -184,14 +184,14 @@ let oracle fname =
 	let _ = Unix.close garbage in
   r
 
-let lpsolve fname =
+let lpsolve fname id2pid =
 	let lpsolver = "glpsol" in 
 	let outfile = !Options.marshal_dir ^ "/lp.out" in 
 	let garbage =
 		let filename = "/dev/null" in
 		Unix.openfile filename [Unix.O_CREAT; Unix.O_WRONLY] 0o640
 	in
-  let _ = Unix.create_process lpsolver [|lpsolver; "-o"; outfile; "--lp"; fname|] Unix.stdin garbage garbage in
+  let _ = Unix.create_process lpsolver [|lpsolver; "--tmlim"; (string_of_int !Options.ilp_timeout); "-o"; outfile; "--lp"; fname|] Unix.stdin garbage garbage in
   let r = match snd (Unix.wait ()) with
     | Unix.WEXITED 0 -> true
     | _ -> false
@@ -210,9 +210,9 @@ let lpsolve fname =
 			(* let _ = prerr_endline (string_of_list id tokens) in    *)
 			if (List.length tokens) = 6 && ((List.nth tokens 1).[0] = 'e') && (List.nth tokens 3) = "1" then
 				let tokens' = Str.split (Str.regexp "_") (List.nth tokens 1) in 
-				let _ = assert ((List.length tokens') = 3) in 
-				let pid = List.nth tokens' 1 in
-				let nid = int_of_string (List.nth tokens' 2) in
+				let _ = assert ((List.length tokens') = 4) in 
+				let pid = BatMap.find (int_of_string (List.nth tokens' 2)) id2pid in
+				let nid = int_of_string (List.nth tokens' 3) in
 				BatSet.add (InterCfg.Node.make pid (IntraCfg.Node.from_id nid)) broken_branches   	 
 			else broken_branches
 		) BatSet.empty lines  
