@@ -420,7 +420,7 @@ let get_refutable_branches global branch2vals already_covered unremovable_conds 
 		) BatSet.empty nodes 
 	in
 	(** Remaining only constant branch conditions + ones not exercised during oracle runs *)
-	let target_branches =
+	let target_branches = if !Options.noinstrument then target_branches else 
 		BatSet.filter (fun node ->
 			let cmd = try InterCfg.cmdof global.icfg node with _ -> assert false in
 			match cmd with 
