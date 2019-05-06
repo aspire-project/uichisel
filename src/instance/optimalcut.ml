@@ -11,14 +11,13 @@ open Report
 open Pretty
 open Global
 
-(* TODO: handle skip nodes *)
-
 let string_of_inter_node pid2id node = 
 	let pid = InterCfg.Node.get_pid node in 
 	let cfgnode = InterCfg.Node.get_cfgnode node in
 	let node_str =
 		try  
-		Printf.sprintf "v_%d_%s" (BatMap.find pid pid2id) (IntraCfg.Node.to_string cfgnode)
+		(* Printf.sprintf "v_%d_%s" (BatMap.find pid pid2id) (IntraCfg.Node.to_string cfgnode) *)
+		Printf.sprintf "%s_%s" pid (IntraCfg.Node.to_string cfgnode)
 		with _ -> failwith pid 
 	in
 	node_str
@@ -128,9 +127,11 @@ let get_optimal_questions orig_icfg global target_branches exclude_nodes =
 		List.fold_left (fun (pid2id, id2pid, id) pid ->
 			let id = id + 1 in
 			let pid2id = BatMap.add pid id pid2id in 
-			let id2pid = BatMap.add id pid id2pid in  
+			let id2pid = BatMap.add id pid id2pid in
+			prerr_endline ("func: " ^ pid);  
 			(pid2id, id2pid, id)		 
-		) (BatMap.empty, BatMap.empty, 0) (InterCfg.pidsof orig_icfg)  
+		) (BatMap.empty, BatMap.empty, 0) (InterCfg.pidsof orig_icfg) 
+		(* (BatSet.elements (List.fold_left (fun pids node -> BatSet.add (InterCfg.Node.get_pid node) pids) BatSet.empty entire_nodes))   *)
 	in
 	while !i + 1 < !k do
 		let j = (!i + !k) / 2 in 
@@ -138,7 +139,7 @@ let get_optimal_questions orig_icfg global target_branches exclude_nodes =
 		prerr_string (Printf.sprintf "Trying gain / cost = %d / %d ... " gain cost);
 		let cplex = create_cplex gain cost global target_branches entire_nodes pid2id in
   	let _ = Utils.save_text cplex (!Options.marshal_dir ^ "/lp.lp") in
-  	let broken_branches = Utils.lpsolve (!Options.marshal_dir ^ "/lp.lp") id2pid in
+  	let broken_branches = Utils.lpsolve (!Options.marshal_dir ^ "/lp.lp") in
 		if (not (BatSet.is_empty broken_branches)) then (* feasible *) 
 			(prerr_endline "feasible";
 			 last_gain := gain; 
