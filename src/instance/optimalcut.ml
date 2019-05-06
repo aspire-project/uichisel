@@ -62,11 +62,15 @@ let create_cplex gain cost global target_branches nodes pid2id =
 					let _ = assert ((List.length succs) = 1) in (* assume node should have a single successor *)
 					let edge_str = string_of_inter_edge pid2id node in  
 					let succ_node = InterCfg.Node.make pid (List.hd succs) in 
-					Printf.sprintf "%s%s - %s - %s <= 0\n" constr_str node_str (string_of_inter_node pid2id succ_node) edge_str  	 
+					let succ_str = (string_of_inter_node pid2id succ_node) in 
+					if (String.compare node_str succ_str) = 0 then constr_str
+					else Printf.sprintf "%s%s - %s - %s <= 0\n" constr_str node_str succ_str edge_str  	 
 				else (* strong_edge *) 
 					List.fold_left (fun constr_str succ ->
 						let succ_node = InterCfg.Node.make pid succ in
-						Printf.sprintf "%s%s - %s <= 0\n" constr_str node_str (string_of_inter_node pid2id succ_node)	 
+						let succ_str = (string_of_inter_node pid2id succ_node) in 
+						if (String.compare node_str succ_str) = 0 then constr_str 
+						else Printf.sprintf "%s%s - %s <= 0\n" constr_str node_str succ_str	 
 					) constr_str succs 
 			) constr_str nodes 
 		in
@@ -128,7 +132,7 @@ let get_optimal_questions orig_icfg global target_branches exclude_nodes =
 			let id = id + 1 in
 			let pid2id = BatMap.add pid id pid2id in 
 			let id2pid = BatMap.add id pid id2pid in
-			prerr_endline ("func: " ^ pid);  
+			(* prerr_endline ("func: " ^ pid);   *)
 			(pid2id, id2pid, id)		 
 		) (BatMap.empty, BatMap.empty, 0) (InterCfg.pidsof orig_icfg) 
 		(* (BatSet.elements (List.fold_left (fun pids node -> BatSet.add (InterCfg.Node.get_pid node) pids) BatSet.empty entire_nodes))   *)
