@@ -215,7 +215,7 @@ let lpsolve fname =
 			List.fold_left (fun id2var line -> 
 				try 
   				let tokens = List.filter (fun x -> (String.compare x "") != 0) (Str.split (Str.regexp " ") line) in
-  				if (List.length tokens) >= 2 && ((List.nth tokens 1).[0] = 'e') then
+  				if (List.length tokens) >= 2 && (String.compare (String.sub (List.nth tokens 1) 0 2) "e_") = 0 then
   					let id = int_of_string (List.nth tokens 0) in
   					let var = (List.nth tokens 1) in  
   					BatMap.add id var id2var 
