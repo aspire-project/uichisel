@@ -192,6 +192,7 @@ let lpsolve fname =
 		let filename = "/dev/null" in
 		Unix.openfile filename [Unix.O_CREAT; Unix.O_WRONLY] 0o640
 	in
+  
   let _ = Unix.create_process lpsolver [|lpsolver; "--tmlim"; (string_of_int !Options.ilp_timeout); "-w"; solfile; "-o"; outfile; "--lp"; fname|] Unix.stdin garbage garbage in
   let r = match snd (Unix.wait ()) with
     | Unix.WEXITED 0 -> true
@@ -233,10 +234,16 @@ let lpsolve fname =
 				else (* edge *)
   				let var = try BatMap.find id id2var with _ -> assert false in   
   				let tokens' = Str.split (Str.regexp "_") var in
-  				let _ = assert ((List.length tokens') = 3) in
-  				let pid = (List.nth tokens' 1) in
-  				let nid = int_of_string (List.nth tokens' 2) in
-  				BatSet.add (InterCfg.Node.make pid (IntraCfg.Node.from_id nid)) broken_branches
+				if List.length tokens' = 3 then
+  					let pid = (List.nth tokens' 1) in
+  					let nid = int_of_string (List.nth tokens' 2) in
+  					BatSet.add (InterCfg.Node.make pid (IntraCfg.Node.from_id nid)) broken_branches
+				else if List.length tokens' > 3 then
+  					let pid = (List.nth tokens' 1) in
+  					let nid = int_of_string (List.nth tokens' (List.length tokens' - 1)) in
+  					BatSet.add (InterCfg.Node.make pid (IntraCfg.Node.from_id nid)) broken_branches
+				else
+					assert false
 			else broken_branches
 		) BatSet.empty sollines 
 	
