@@ -346,22 +346,39 @@ let rec dependent b1 b2 =
 	else if not (BatSet.is_empty (BatSet.intersect gotos2 stmts1)) then 1
 	else 0   
 
+
 (* unremovable_ref: ref to branches that cannot be removed *)
+class user_branch_collector user_blacklist_ref = object(self)
+  inherit nopCilVisitor
+	method vstmt (s: Cil.stmt) =
+		(match s.skind with 
+		| If (_, _, _, loc) ->
+                        let str_loc = CilHelper.s_location loc in
+                        let tokens = (Str.split (Str.regexp ":") str_loc) in
+                        let line_no = int_of_string(List.nth tokens 1) in
+                          
+                        if line_no != 3453 then
+                                user_blacklist_ref := BatSet.add loc !user_blacklist_ref
+                        else ()
+
+		| _ -> ()); DoChildren 
+end
+
 class unremovable_branch_collector unremovable_ref = object(self)
   inherit nopCilVisitor
 	method vstmt (s: Cil.stmt) =
 		(match s.skind with 
 		| If (c, b1, b2, loc) ->
 			let dep = dependent b1 b2 in
-			(* let _ = print_endline (Printf.sprintf "**** ========= %s at %s, %b: %b ======== ****" (CilHelper.s_stmt s) (CilHelper.s_location loc) false (BatSet.mem (loc, false) to_remove)) in *)
+			(* let _ = print_endline (Printf.sprintf "**** ========= %s ======== ****" (CilHelper.s_location loc)) in false (BatSet.mem (loc, false) to_remove)) in *)
 			(* let _ = print_endline (Printf.sprintf "**** ========= %s at %s, %b: %b ======== ****" (CilHelper.s_stmt s) (CilHelper.s_location loc) true (BatSet.mem (loc, true) to_remove)) in   *)
 			if dep = 2 then 
 				unremovable_ref := BatSet.union (BatSet.of_list [(loc,true); (loc,false)]) !unremovable_ref
 			else if dep = -1 then
 				unremovable_ref := BatSet.add (loc,false) !unremovable_ref
 			else if dep = 1 then 
-				unremovable_ref := BatSet.add (loc,true) !unremovable_ref
-			else () 
+				unremovable_ref := BatSet.add (loc,true) !unremovable_ref                      
+			else ()
 		| _ -> ()); DoChildren 
 		
   (* method vblock (block: Cil.block) =                                                                                                                                                            *)
@@ -404,7 +421,7 @@ let get_locset mem =
 (** ************************ User-interactive Chisel ********************************** *)
 (** *********************************************************************************** *)
 
-let get_refutable_branches global branch2vals already_covered unremovable_conds =
+let get_refutable_branches global branch2vals already_covered unremovable_conds user_blacklist_ref=
 	(** all branch conditions *)
 	let target_branches =
 		let nodes = InterCfg.nodesof global.icfg in
@@ -449,6 +466,17 @@ let get_refutable_branches global branch2vals already_covered unremovable_conds 
 			not dominated_by_some
 		) target_branches
 	in 	
+
+  (** exclude thos these user says not to consider **)
+  let target_branches =               
+		BatSet.filter (fun node -> 
+			  let cmd = try InterCfg.cmdof global.icfg node with _ -> assert false in
+			  match cmd with 
+			  | IntraCfg.Cmd.Cassume (e, loc, b) -> not (BatSet.mem (loc) user_blacklist_ref)
+			| _ -> false
+		  ) target_branches 	 
+  in
+
 	(** exclude unremovable branches because of labels *)
 	let target_branches =
 		BatSet.filter (fun node -> 
@@ -458,6 +486,7 @@ let get_refutable_branches global branch2vals already_covered unremovable_conds 
 			| _ -> false
 		) target_branches 	 
 	in
+
 	target_branches
 	
 	
@@ -628,7 +657,10 @@ let ui_chisel_init source_name (global,spec,inputof,outputof) =
 	(* |> Yojson.Safe.pretty_to_channel stderr;             *)
 	(** get unremovable branches due to interdependency *)
 	let unremovable_conds_ref = ref BatSet.empty in 
-	ignore(Cil.visitCilFileSameGlobals (new unremovable_branch_collector unremovable_conds_ref) global.file); 
+        let user_blacklist_ref = ref BatSet.empty in
+
+        ignore(Cil.visitCilFileSameGlobals (new unremovable_branch_collector unremovable_conds_ref) global.file); 
+        ignore(Cil.visitCilFileSameGlobals (new user_branch_collector user_blacklist_ref) global.file);
 	prerr_endline (Printf.sprintf "=== #. unremovable branches: %d === \n" (BatSet.cardinal !unremovable_conds_ref));
 	(** do pe upfront *)
 	let (global, spec, inputof, outputof) = partial_evaluation orig_icfg source_name !unremovable_conds_ref (global,spec,inputof,outputof) in
@@ -667,14 +699,16 @@ let ui_chisel_init source_name (global,spec,inputof,outputof) =
 	(** revert the original program back *)
 	let global = Utils.load_global global_filename in
 	let _ = Utils.save global.file source_name in
-	let target_branches = get_refutable_branches global branch2vals BatSet.empty !unremovable_conds_ref in
+
+        (** NR: Function to get candidate branches to be removed **)
+	let target_branches = get_refutable_branches global branch2vals BatSet.empty !unremovable_conds_ref !user_blacklist_ref in
 	prerr_endline (Printf.sprintf "=== #. constant branches: %d === \n" (BatSet.cardinal target_branches));
 	let branch2reduction =
 		if !Options.greedy then  
 			compute_gains orig_icfg source_name target_branches !unremovable_conds_ref (global, spec, inputof, outputof)
 		else [] 
 	in
-	(branch2vals, target_branches, !unremovable_conds_ref, branch2reduction, global, spec, inputof, outputof)
+	(branch2vals, target_branches, !unremovable_conds_ref, !user_blacklist_ref, branch2reduction, global, spec, inputof, outputof)
 	
 
 exception Found of InterCfg.Node.t 
@@ -715,7 +749,7 @@ let node_of_cmd target_branch_cmd global =
 (* write to file source_name only when terminating *)
 (* "target_branches" shrinks as iterations go by. *)
 (* invariant: target_branches contain nodes of which commands exist. *)
-let rec ui_chisel_greedy log_oc source_name orig_icfg (iter,already_covered,branch2vals,target_branches,unremovable_conds,branch2reduction)  (global,spec,inputof,outputof) =
+let rec ui_chisel_greedy log_oc source_name orig_icfg (iter,already_covered,branch2vals,target_branches,unremovable_conds,user_blacklist_conds,branch2reduction)  (global,spec,inputof,outputof) =
 	if (BatSet.cardinal target_branches) = 0 then 
 		let _ = prerr_endline "No questions to be answered!" in
 		let _ = save_source source_name global orig_icfg in 
@@ -756,16 +790,16 @@ let rec ui_chisel_greedy log_oc source_name orig_icfg (iter,already_covered,bran
 	if answer = 1 then (* user confirms this likely invariant *)
 		let (global, spec, inputof, outputof) = pe_info in
 		(* recompute target_branches: some branches may have been removed by the partial evaluation *) 
-		let target_branches = get_refutable_branches global branch2vals already_covered unremovable_conds in
+		let target_branches = get_refutable_branches global branch2vals already_covered unremovable_conds user_blacklist_conds in
 		(* recompute the gains *)
 		let branch2reduction = compute_gains orig_icfg source_name target_branches unremovable_conds (global, spec, inputof, outputof) in
 		(* logging *) 
 		let next_n_pid = List.length (InterCfg.pidsof global.icfg) in  
 		let next_size = InterCfg.num_of_nonskip_nodes global.icfg in
 		let _ = Printf.fprintf log_oc "\t%d\t%d\n" next_n_pid next_size in
-		ui_chisel_greedy log_oc source_name orig_icfg (iter+1,already_covered,branch2vals,target_branches,unremovable_conds,branch2reduction) (global,spec,inputof,outputof)
+		ui_chisel_greedy log_oc source_name orig_icfg (iter+1,already_covered,branch2vals,target_branches,unremovable_conds,user_blacklist_conds,branch2reduction) (global,spec,inputof,outputof)
 	else if answer = 0 then (* user does not confirm the likely invariant. *)
-		let target_branches' = get_refutable_branches global branch2vals already_covered unremovable_conds in
+		let target_branches' = get_refutable_branches global branch2vals already_covered unremovable_conds user_blacklist_conds in
 		let delta_target_branches = BatSet.diff target_branches' target_branches in
 		let delta_branch2reduction = compute_gains orig_icfg source_name delta_target_branches unremovable_conds (global, spec, inputof, outputof) in
 		let branch2reduction = List.filter (fun (n,_,_) -> (Pervasives.compare n target_branch_node) != 0) (delta_branch2reduction @ branch2reduction) in
@@ -774,7 +808,7 @@ let rec ui_chisel_greedy log_oc source_name orig_icfg (iter,already_covered,bran
 		let next_n_pid = List.length (InterCfg.pidsof global.icfg) in  
 		let next_size = InterCfg.num_of_nonskip_nodes global.icfg in
 		let _ = Printf.fprintf log_oc "\t%d\t%d\n" next_n_pid next_size in
-		ui_chisel_greedy log_oc source_name orig_icfg (iter+1,already_covered,branch2vals,target_branches',unremovable_conds,branch2reduction) (global,spec,inputof,outputof)		
+		ui_chisel_greedy log_oc source_name orig_icfg (iter+1,already_covered,branch2vals,target_branches',unremovable_conds,user_blacklist_conds,branch2reduction) (global,spec,inputof,outputof)		
 	else (* user wants to stop: save the file and quit. *)
 		let _ = save_source source_name global orig_icfg in
 		let _ = prerr_endline "Chisel is asked to stop the process!" in 
@@ -782,7 +816,7 @@ let rec ui_chisel_greedy log_oc source_name orig_icfg (iter,already_covered,bran
 
 
 (* Iter	#Questions	Avg gain 	Question  Answer	Reason	#func	#CFG nodes *)
-let rec ui_chisel_ilp log_oc source_name orig_icfg (iter,already_covered,branch2vals,target_branches,unremovable_conds,branch2reduction)  (global,spec,inputof,outputof) =
+let rec ui_chisel_ilp log_oc source_name orig_icfg (iter,already_covered,branch2vals,target_branches,unremovable_conds,user_blacklist_conds,branch2reduction)  (global,spec,inputof,outputof) =
 	if (BatSet.cardinal target_branches) = 0 then 
 		let _ = prerr_endline "No questions to be answered!" in
 		let _ = save_source source_name global orig_icfg in 
@@ -855,8 +889,8 @@ let rec ui_chisel_ilp log_oc source_name orig_icfg (iter,already_covered,branch2
   		Printf.fprintf log_oc "\t%d\t%d\n" after_nfunc after_size
 		) answers; 
 		let already_covered = BatSet.union optimal_questions already_covered in
-		let target_branches = get_refutable_branches global branch2vals already_covered unremovable_conds in
-		ui_chisel_ilp log_oc source_name orig_icfg (iter+1,already_covered,branch2vals,target_branches,unremovable_conds,branch2reduction) (global,spec,inputof,outputof)		 
+		let target_branches = get_refutable_branches global branch2vals already_covered unremovable_conds user_blacklist_conds in
+		ui_chisel_ilp log_oc source_name orig_icfg (iter+1,already_covered,branch2vals,target_branches,unremovable_conds,user_blacklist_conds,branch2reduction) (global,spec,inputof,outputof)		 
 	with EarlyAbort ->
 		(* user wants to stop: save the file and quit. *)
 		let _ = save_source source_name global orig_icfg in
@@ -866,6 +900,7 @@ let rec ui_chisel_ilp log_oc source_name orig_icfg (iter,already_covered,branch2
 	
 let do_analysis : Global.t -> Global.t * Table.t * Table.t * Report.query list
 = fun global ->
+  prerr_endline("STARTED");
   let _ = prerr_memory_usage () in
   let locset = get_locset global.mem in
   let locset_fs = PartialFlowSensitivity.select global locset in
@@ -888,7 +923,7 @@ let do_analysis : Global.t -> Global.t * Table.t * Table.t * Report.query list
 			 let n_pid = List.length (InterCfg.pidsof global.icfg) in  
 			 let pgm_size = InterCfg.num_of_nonskip_nodes global.icfg in
 			 Printf.fprintf log_oc "%s - #func: %d \t #instrs : %d\n" source_name n_pid pgm_size; 
-			 let (branch2vals, target_branches, unremovable_conds, branch2reduction, global, spec, inputof, outputof) = 
+			 let (branch2vals, target_branches, unremovable_conds, user_blacklist_conds, branch2reduction, global, spec, inputof, outputof) = 
 				 ui_chisel_init source_name (global,spec,inputof,outputof) 
 			 in
 			 let n_pid = List.length (InterCfg.pidsof global.icfg) in  
@@ -902,7 +937,7 @@ let do_analysis : Global.t -> Global.t * Table.t * Table.t * Report.query list
 			 in
 			 let _ = 
 				  (if (!Options.greedy) then ui_chisel_greedy else ui_chisel_ilp) log_oc source_name orig_cfg 
-					  (1, BatSet.empty, branch2vals, target_branches, unremovable_conds, branch2reduction) 
+					  (1, BatSet.empty, branch2vals, target_branches, unremovable_conds, user_blacklist_conds, branch2reduction) 
 					  (global,spec,inputof,outputof)
 			 in
 			 close_out log_oc; 
