@@ -84,3 +84,4 @@ val opts : (string * Arg.spec * string) list
 val greedy : bool ref
 val ilp_timeout : int ref
 val noinstrument : bool ref
+val force_branch : string ref

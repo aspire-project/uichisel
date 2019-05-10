@@ -308,28 +308,28 @@ let marshal_out : Global.t * Table.t * Table.t -> Global.t * Table.t * Table.t
   (global,input,output)
 
 
-let get_exclude_locs global orig_icfg = 
-	List.fold_left (fun exclude_locs node ->
-		let loc_orig = IntraCfg.Cmd.location_of (InterCfg.cmdof orig_icfg node) in
-		let loc = try IntraCfg.Cmd.location_of (InterCfg.cmdof global.icfg node) with _ -> Cil.locUnknown in
-		if (Cil.compareLoc loc_orig loc) != 0 then BatSet.add loc_orig exclude_locs else exclude_locs
-	) BatSet.empty (InterCfg.nodesof orig_icfg) 
+let get_exclude_locs global orig_icfg =
+  List.fold_left (fun exclude_locs node ->
+    let loc_orig = IntraCfg.Cmd.location_of (InterCfg.cmdof orig_icfg node) in
+    let loc = try IntraCfg.Cmd.location_of (InterCfg.cmdof global.icfg node) with _ -> Cil.locUnknown in
+    if (Cil.compareLoc loc_orig loc) != 0 then BatSet.add loc_orig exclude_locs else exclude_locs
+  ) BatSet.empty (InterCfg.nodesof orig_icfg)
 
 
-let get_exclude_nodes global orig_icfg = 
-	List.fold_left (fun exclude_nodes node ->
-		let loc_orig = IntraCfg.Cmd.location_of (InterCfg.cmdof orig_icfg node) in
-		let loc = try IntraCfg.Cmd.location_of (InterCfg.cmdof global.icfg node) with _ -> Cil.locUnknown in
-		if (Cil.compareLoc loc_orig loc) != 0 then BatSet.add node exclude_nodes else exclude_nodes
-	) BatSet.empty (InterCfg.nodesof orig_icfg)
+let get_exclude_nodes global orig_icfg =
+  List.fold_left (fun exclude_nodes node ->
+    let loc_orig = IntraCfg.Cmd.location_of (InterCfg.cmdof orig_icfg node) in
+    let loc = try IntraCfg.Cmd.location_of (InterCfg.cmdof global.icfg node) with _ -> Cil.locUnknown in
+    if (Cil.compareLoc loc_orig loc) != 0 then BatSet.add node exclude_nodes else exclude_nodes
+  ) BatSet.empty (InterCfg.nodesof orig_icfg)
 
 
 let save_source source_name global orig_icfg =
-	let cil_globals = global.file.globals in     
-	global.file.globals <- global.icfg.InterCfg.globals;  
-	let exclude_locs = get_exclude_locs global orig_icfg in  
-	Utils.save_with_excludes global.file source_name exclude_locs;
-	global.file.globals <- cil_globals
+  let cil_globals = global.file.globals in
+  global.file.globals <- global.icfg.InterCfg.globals;
+  let exclude_locs = get_exclude_locs global orig_icfg in
+  Utils.save_with_excludes global.file source_name exclude_locs;
+  global.file.globals <- cil_globals
 
 
 (* -1: b1 goto b2 *)
@@ -337,69 +337,33 @@ let save_source source_name global orig_icfg =
 (* 2: b1 goto b2 and b2 goto b1 *)
 (* 0: b1 independent b2 *)
 let rec dependent b1 b2 =
-	let stmts1 = (CilHelper.collect_stmts_of_block b1) in 
-	let stmts2 = (CilHelper.collect_stmts_of_block b2) in
-	let gotos1 = BatSet.fold (fun s set -> match s.skind with Goto (stmtref, _) -> BatSet.add !stmtref set | _ -> set) stmts1 BatSet.empty in
+  let stmts1 = (CilHelper.collect_stmts_of_block b1) in
+  let stmts2 = (CilHelper.collect_stmts_of_block b2) in
+  let gotos1 = BatSet.fold (fun s set -> match s.skind with Goto (stmtref, _) -> BatSet.add !stmtref set | _ -> set) stmts1 BatSet.empty in
   let gotos2 = BatSet.fold (fun s set -> match s.skind with Goto (stmtref, _) -> BatSet.add !stmtref set | _ -> set) stmts2 BatSet.empty in
-	if not (BatSet.is_empty (BatSet.intersect gotos1 stmts2)) && not (BatSet.is_empty (BatSet.intersect gotos2 stmts1)) then 2
-	else if not (BatSet.is_empty (BatSet.intersect gotos1 stmts2)) then -1
-	else if not (BatSet.is_empty (BatSet.intersect gotos2 stmts1)) then 1
-	else 0   
+  if not (BatSet.is_empty (BatSet.intersect gotos1 stmts2)) && not (BatSet.is_empty (BatSet.intersect gotos2 stmts1)) then 2
+  else if not (BatSet.is_empty (BatSet.intersect gotos1 stmts2)) then -1
+  else if not (BatSet.is_empty (BatSet.intersect gotos2 stmts1)) then 1
+  else 0
 
-
-(* unremovable_ref: ref to branches that cannot be removed *)
-class user_branch_collector user_blacklist_ref = object(self)
-  inherit nopCilVisitor
-	method vstmt (s: Cil.stmt) =
-		(match s.skind with 
-		| If (_, _, _, loc) ->
-                        let str_loc = CilHelper.s_location loc in
-                        let tokens = (Str.split (Str.regexp ":") str_loc) in
-                        let line_no = int_of_string(List.nth tokens 1) in
-                          
-                        if line_no != 3453 then
-                                user_blacklist_ref := BatSet.add loc !user_blacklist_ref
-                        else ()
-
-		| _ -> ()); DoChildren 
-end
 
 class unremovable_branch_collector unremovable_ref = object(self)
   inherit nopCilVisitor
-	method vstmt (s: Cil.stmt) =
-		(match s.skind with 
-		| If (c, b1, b2, loc) ->
-			let dep = dependent b1 b2 in
-			(* let _ = print_endline (Printf.sprintf "**** ========= %s ======== ****" (CilHelper.s_location loc)) in false (BatSet.mem (loc, false) to_remove)) in *)
-			(* let _ = print_endline (Printf.sprintf "**** ========= %s at %s, %b: %b ======== ****" (CilHelper.s_stmt s) (CilHelper.s_location loc) true (BatSet.mem (loc, true) to_remove)) in   *)
-			if dep = 2 then 
-				unremovable_ref := BatSet.union (BatSet.of_list [(loc,true); (loc,false)]) !unremovable_ref
-			else if dep = -1 then
-				unremovable_ref := BatSet.add (loc,false) !unremovable_ref
-			else if dep = 1 then 
-				unremovable_ref := BatSet.add (loc,true) !unremovable_ref                      
-			else ()
-		| _ -> ()); DoChildren 
-		
-  (* method vblock (block: Cil.block) =                                                                                                                                                            *)
-	(* 	match !currentGlobal with                                                                                                                                                                   *)
-	(* 	| GFun (fundec, _) ->                                                                                                                                                                       *)
-	(* 		let bstmts = block.bstmts in                                                                                                                                                              *)
-	(* 			List.iter (fun s ->                                                                                                                                                                     *)
-	(* 				match s.skind with                                                                                                                                                                    *)
-	(* 				| If (c, b1, b2, loc) ->                                                                                                                                                              *)
-	(* 					let dep = dependent b1 b2 in                                                                                                                                                        *)
-	(* 					let _ = print_endline (Printf.sprintf "**** ========= %s at %s, %b: %b ======== ****" (CilHelper.s_stmt s) (CilHelper.s_location loc) false (BatSet.mem (loc, false) to_remove)) in *)
-	(* 					let _ = print_endline (Printf.sprintf "**** ========= %s at %s, %b: %b ======== ****" (CilHelper.s_stmt s) (CilHelper.s_location loc) true (BatSet.mem (loc, true) to_remove)) in   *)
-	(* 					if (*dep != -1 &&*) (BatSet.mem (loc, false) to_remove) then                                                                                                                        *)
-	(* 						s.skind <- (Block b1)                                                                                                                                                             *)
-	(* 					else if (*dep != 1 &&*) (BatSet.mem (loc, true) to_remove) then                                                                                                                     *)
-	(* 						s.skind <- (Block b2)                                                                                                                                                             *)
-	(* 					else ()                                                                                                                                                                             *)
-	(* 				| _ -> ()                                                                                                                                                                             *)
-	(* 			) bstmts;                                                                                                                                                                               *)
-  (*   	Cil.ChangeTo { block with bstmts }                                                                                                                                                        *)
-	(* 	| _ -> Cil.DoChildren                                                                                                                                                                       *)
+  method vstmt (s: Cil.stmt) =
+    (match s.skind with
+    | If (c, b1, b2, loc) ->
+       let dep = dependent b1 b2 in
+
+      (* let _ = print_endline (Printf.sprintf "**** ========= %s ======== ****" (CilHelper.s_location loc)) in false (BatSet.mem (loc, false) to_remove)) in *)
+      (* let _ = print_endline (Printf.sprintf "**** ========= %s at %s======== ****" (CilHelper.s_stmt s) (CilHelper.s_location loc) ) in *)
+      if dep = 2 then
+        unremovable_ref := BatSet.union (BatSet.of_list [(loc,true); (loc,false)]) !unremovable_ref
+      else if dep = -1 then
+        unremovable_ref := BatSet.add (loc,false) !unremovable_ref
+      else if dep = 1 then
+        unremovable_ref := BatSet.add (loc,true) !unremovable_ref
+      else ()
+    | _ -> ()); DoChildren
 end
 
 
@@ -421,306 +385,324 @@ let get_locset mem =
 (** ************************ User-interactive Chisel ********************************** *)
 (** *********************************************************************************** *)
 
-let get_refutable_branches global branch2vals already_covered unremovable_conds user_blacklist_ref=
-	(** all branch conditions *)
-	let target_branches =
-		let nodes = InterCfg.nodesof global.icfg in
-		List.fold_left (fun target_branches node ->
-			if (String.compare (InterCfg.Node.get_pid node) InterCfg.global_proc) = 0 then target_branches
-			else
-			let cmd = try InterCfg.cmdof global.icfg node with _ -> assert false in
-			match cmd with 
-			| IntraCfg.Cmd.Cassume (e, loc, b) ->
-				if (BatSet.mem node already_covered) then target_branches   
-				else BatSet.add node target_branches 
-			| _ -> target_branches 
-		) BatSet.empty nodes 
-	in
-	(** Remaining only constant branch conditions + ones not exercised during oracle runs *)
-	let target_branches = if !Options.noinstrument then target_branches else 
-		BatSet.filter (fun node ->
-			let cmd = try InterCfg.cmdof global.icfg node with _ -> assert false in
-			match cmd with 
-			| IntraCfg.Cmd.Cassume (e, loc, b) ->
-				if not (BatMap.mem loc branch2vals) then (* not exercised during oracle runs *)
-					true
-				else
-					let values = try BatMap.find loc branch2vals with _ -> assert false in 
-					if ((BatSet.cardinal values) = 1) then    
-						let value = BatSet.choose (values) in
-						(value = 0 && b) || (value != 0 && (not b))
-					else false
-			| _ -> assert false  
-		) target_branches 
-	in
-	(** Remaining only non-dominating branch conditions *)
-	let target_branches =
-		BatSet.filter (fun node ->
-			let pid, n = (InterCfg.Node.get_pid node, InterCfg.Node.get_cfgnode node) in
-			let dominated_by_some =    
-  			BatSet.exists (fun node' -> 
-  				let pid', n' = (InterCfg.Node.get_pid node', InterCfg.Node.get_cfgnode node')  in
-  				(String.compare pid pid') = 0 && (IntraCfg.is_dom (InterCfg.cfgof global.icfg pid) n' n) 
-  			) (BatSet.remove node target_branches) 
-			in 
-			not dominated_by_some
-		) target_branches
-	in 	
+let contains s1 s2 =
+    let re = Str.regexp_string s2
+    in
+        try ignore (Str.search_forward re s1 0); true
+        with Not_found -> false
 
-  (** exclude thos these user says not to consider **)
-  let target_branches =               
-		BatSet.filter (fun node -> 
-			  let cmd = try InterCfg.cmdof global.icfg node with _ -> assert false in
-			  match cmd with 
-			  | IntraCfg.Cmd.Cassume (e, loc, b) -> not (BatSet.mem (loc) user_blacklist_ref)
-			| _ -> false
-		  ) target_branches 	 
-  in
+let get_refutable_branches global branch2vals already_covered unremovable_conds=
+  if (String.compare !Options.force_branch "None") = 0 then
+    (* all branch conditions *)
+    let target_branches =
+      let nodes = InterCfg.nodesof global.icfg in
+      List.fold_left (fun target_branches node ->
+          if (String.compare (InterCfg.Node.get_pid node) InterCfg.global_proc) = 0 then target_branches
+          else
+            let cmd = try InterCfg.cmdof global.icfg node with _ -> assert false in
+            match cmd with
+            | IntraCfg.Cmd.Cassume (e, loc, b) ->
+               if (BatSet.mem node already_covered) then target_branches
+               else BatSet.add node target_branches
+            | _ -> target_branches
+        ) BatSet.empty nodes
+    in
 
-	(** exclude unremovable branches because of labels *)
-	let target_branches =
-		BatSet.filter (fun node -> 
-			let cmd = try InterCfg.cmdof global.icfg node with _ -> assert false in
-			match cmd with 
-			| IntraCfg.Cmd.Cassume (e, loc, b) -> not (BatSet.mem (loc, b) unremovable_conds)
-			| _ -> false
-		) target_branches 	 
-	in
+    (** Remaining only constant branch conditions + ones not exercised during oracle runs *)
+    let target_branches = if !Options.noinstrument then target_branches else
+      BatSet.filter (fun node ->
+          let cmd = try InterCfg.cmdof global.icfg node with _ -> assert false in
+          match cmd with
+          | IntraCfg.Cmd.Cassume (e, loc, b) ->
+             if not (BatMap.mem loc branch2vals) then (* not exercised during oracle runs *)
+               true
+             else
+               let values = try BatMap.find loc branch2vals with _ -> assert false in
+               if ((BatSet.cardinal values) = 1) then
+                 let value = BatSet.choose (values) in
+                 (value = 0 && b) || (value != 0 && (not b))
+               else false
+          | _ -> assert false
+        ) target_branches
+    in
+    (** Remaining only non-dominating branch conditions *)
+    let target_branches =
+      BatSet.filter (fun node ->
+          let pid, n = (InterCfg.Node.get_pid node, InterCfg.Node.get_cfgnode node) in
+          let dominated_by_some =
+            BatSet.exists (fun node' ->
+                let pid', n' = (InterCfg.Node.get_pid node', InterCfg.Node.get_cfgnode node')  in
+                (String.compare pid pid') = 0 && (IntraCfg.is_dom (InterCfg.cfgof global.icfg pid) n' n)
+              ) (BatSet.remove node target_branches)
+          in
+          not dominated_by_some
+        ) target_branches
+    in
 
-	target_branches
-	
-	
+    (** exclude unremovable branches because of labels *)
+    let target_branches =
+      BatSet.filter (fun node ->
+          let cmd = try InterCfg.cmdof global.icfg node with _ -> assert false in
+          match cmd with
+          | IntraCfg.Cmd.Cassume (e, loc, b) -> not (BatSet.mem (loc, b) unremovable_conds)
+          | _ -> false
+        ) target_branches
+    in
+    target_branches
+  else
+    let target_branches =
+      let nodes = InterCfg.nodesof global.icfg in
+      let lines = List.map int_of_string (Str.split (Str.regexp " ") !Options.force_branch) in
+
+      List.fold_left (fun target_branches node ->
+          if (String.compare (InterCfg.Node.get_pid node) InterCfg.global_proc) = 0 then target_branches
+          else
+            let cmd = try InterCfg.cmdof global.icfg node with _ -> assert false in
+            match cmd with
+            | IntraCfg.Cmd.Cassume (e, loc, b) ->
+               let str_loc = CilHelper.s_location loc in
+               let tokens = (Str.split (Str.regexp ":") str_loc) in
+               let line_no = int_of_string(List.nth tokens 1) in
+
+               if (BatSet.mem node already_covered) then target_branches
+               else if (List.mem line_no lines) then
+                 BatSet.add node target_branches
+               else
+                 target_branches
+            | _ -> target_branches
+        ) BatSet.empty nodes
+    in
+    target_branches
+
+
 (** sync(global) = global *)
 let sync orig_icfg source_name (global, spec, inputof, outputof) =
-	(* only remain icfg *)
-	let global = {global with callgraph = CallGraph.empty; dump = Dump.empty; mem = ItvDom.Mem.bot; table = ItvDom.Table.bot} in
-	let global = {global with icfg = InterCfg.compute_dom_and_scc global.icfg} in 
-	let global = PreAnalysis.perform global in  (* including removing unreachable function *)
-	let locset = get_locset global.mem in
-	let locset_fs = PartialFlowSensitivity.select global locset in
-	let unsound_lib = UnsoundLib.collect global in
+  (* only remain icfg *)
+  let global = {global with callgraph = CallGraph.empty; dump = Dump.empty; mem = ItvDom.Mem.bot; table = ItvDom.Table.bot} in
+  let global = {global with icfg = InterCfg.compute_dom_and_scc global.icfg} in
+  let global = PreAnalysis.perform global in  (* including removing unreachable function *)
+  let locset = get_locset global.mem in
+  let locset_fs = PartialFlowSensitivity.select global locset in
+  let unsound_lib = UnsoundLib.collect global in
   let unsound_update = (!Options.bugfinder >= 2) in
   let unsound_bitwise = (!Options.bugfinder >= 1) in
-	let spec = {spec with Spec.locset = locset; Spec.locset_fs = locset_fs; Spec.premem = global.mem; Spec.unsound_lib;
+  let spec = {spec with Spec.locset = locset; Spec.locset_fs = locset_fs; Spec.premem = global.mem; Spec.unsound_lib;
     Spec.unsound_update; Spec.unsound_bitwise; } in
-	let (global, inputof, outputof) =
-		try  
-			Analysis.perform spec global
-		with _ -> let _ = save_source (Printf.sprintf "%s/err.c" !Options.marshal_dir) global orig_icfg in failwith "rerun" 
-	in
-	(global, spec, inputof, outputof)
-	
-	
+  let (global, inputof, outputof) =
+    try
+      Analysis.perform spec global
+    with _ -> let _ = save_source (Printf.sprintf "%s/err.c" !Options.marshal_dir) global orig_icfg in failwith "rerun"
+  in
+  (global, spec, inputof, outputof)
+
+
 (* PE(!p, P) = *)
 (*   0. record |P| *)
 (*   1. for all assume(p), n s.t. T(assume(p)) = \bot and assume(p) dom n, cmdof[n |-> skip]  (T = inputof, forall n. n dom n) *)
 (*   2. T = A(P)  (A = analysis) *)
 (*   3. if |P| changed, goto 0 *)
-(* output: icfg *)	
-let iter = ref 0 
+(* output: icfg *)
+let iter = ref 0
 let rec partial_evaluation orig_icfg source_name unremovable_conds (global,spec,inputof,outputof) =
-	(** reset all the info *)
-	incr iter ;
-	(* should not sync here: inputof can become intentionally out of sync for computing gains *)
-	let prev_size = InterCfg.num_of_nonskip_nodes global.icfg in
-	(** do partial evaluation one step *)
-	let false_conds (*: (Cil.location * bool) BatSet.t*) =
-		let nodes = InterCfg.nodesof global.icfg in
-  	List.fold_left (fun false_conds node ->
-			(* we should use input memory (not output memory) because output memory may not contain necessary values *)
-			(* if they are not used in later parts *)
-    	let cmd = try InterCfg.cmdof global.icfg node with _ -> assert false in
-			match cmd with 
-			| IntraCfg.Cmd.Cassume (cond_exp, loc, b) ->
-				let input_mem = Table.find node inputof in
-				let (mem, _) = Analysis.run AbsSem.Strong spec node (input_mem, global) in
-				if mem = Mem.bot && (not (BatSet.is_empty (CilHelper.collect_lvs_exp cond_exp))) && (not (BatSet.mem (loc,b) unremovable_conds)) then
-					BatSet.add node false_conds
-				else false_conds  
-			| _ -> false_conds
-		) BatSet.empty nodes
-	in
-	(** 1. remove dead branches **)
-	let new_icfg =
-		let rec fix f s =
-			let s' = IntraCfg.NodeSet.fold (fun e set -> IntraCfg.NodeSet.union (f e) set) s s in 
-			if IntraCfg.NodeSet.subset s' s then s else fix f s' 	 
-		in
-		BatSet.fold (fun node new_icfg ->
-			let pid, cfgnode = (InterCfg.Node.get_pid node, InterCfg.Node.get_cfgnode node) in 
-			let cfg = InterCfg.cfgof new_icfg pid in  
-			let to_remove = 
-				fix (fun n -> IntraCfg.children_of_dom_tree n cfg) (IntraCfg.NodeSet.singleton cfgnode)
-				|> IntraCfg.NodeSet.remove cfgnode 
-			in 
-			IntraCfg.NodeSet.fold (fun n new_icfg ->
-				(* InterCfg.remove_node (InterCfg.Node.make pid n) new_icfg *)
-				InterCfg.add_cmd new_icfg (InterCfg.Node.make pid n) IntraCfg.Cmd.Cskip
-			) to_remove new_icfg
-		) false_conds global.icfg 
-	in   
-	let global = {global with icfg = new_icfg } in 
-	let (global, spec, inputof, outputof) = sync orig_icfg source_name (global, spec, inputof, outputof) in
-	let curr_size = InterCfg.num_of_nonskip_nodes global.icfg  in
-	(*let _ = prerr_endline (Printf.sprintf "=== After PE: %d -> %d (#.stmts) ===" prev_size curr_size) in*)
-	if curr_size < prev_size then
-		partial_evaluation orig_icfg source_name unremovable_conds (global,spec,inputof,outputof)
-	else
-		(global,spec,inputof,outputof)
-	 	
-		
+  (** reset all the info *)
+  incr iter ;
+  (* should not sync here: inputof can become intentionally out of sync for computing gains *)
+  let prev_size = InterCfg.num_of_nonskip_nodes global.icfg in
+  (** do partial evaluation one step *)
+  let false_conds (*: (Cil.location * bool) BatSet.t*) =
+    let nodes = InterCfg.nodesof global.icfg in
+    List.fold_left (fun false_conds node ->
+      (* we should use input memory (not output memory) because output memory may not contain necessary values *)
+      (* if they are not used in later parts *)
+      let cmd = try InterCfg.cmdof global.icfg node with _ -> assert false in
+      match cmd with
+      | IntraCfg.Cmd.Cassume (cond_exp, loc, b) ->
+        let input_mem = Table.find node inputof in
+        let (mem, _) = Analysis.run AbsSem.Strong spec node (input_mem, global) in
+        if mem = Mem.bot && (not (BatSet.is_empty (CilHelper.collect_lvs_exp cond_exp))) && (not (BatSet.mem (loc,b) unremovable_conds)) then
+          BatSet.add node false_conds
+        else false_conds
+      | _ -> false_conds
+    ) BatSet.empty nodes
+  in
+  (** 1. remove dead branches **)
+  let new_icfg =
+    let rec fix f s =
+      let s' = IntraCfg.NodeSet.fold (fun e set -> IntraCfg.NodeSet.union (f e) set) s s in
+      if IntraCfg.NodeSet.subset s' s then s else fix f s'
+    in
+    BatSet.fold (fun node new_icfg ->
+      let pid, cfgnode = (InterCfg.Node.get_pid node, InterCfg.Node.get_cfgnode node) in
+      let cfg = InterCfg.cfgof new_icfg pid in
+      let to_remove =
+        fix (fun n -> IntraCfg.children_of_dom_tree n cfg) (IntraCfg.NodeSet.singleton cfgnode)
+        |> IntraCfg.NodeSet.remove cfgnode
+      in
+      IntraCfg.NodeSet.fold (fun n new_icfg ->
+        (* InterCfg.remove_node (InterCfg.Node.make pid n) new_icfg *)
+        InterCfg.add_cmd new_icfg (InterCfg.Node.make pid n) IntraCfg.Cmd.Cskip
+      ) to_remove new_icfg
+    ) false_conds global.icfg
+  in
+  let global = {global with icfg = new_icfg } in
+  let (global, spec, inputof, outputof) = sync orig_icfg source_name (global, spec, inputof, outputof) in
+  let curr_size = InterCfg.num_of_nonskip_nodes global.icfg  in
+  (*let _ = prerr_endline (Printf.sprintf "=== After PE: %d -> %d (#.stmts) ===" prev_size curr_size) in*)
+  if curr_size < prev_size then
+    partial_evaluation orig_icfg source_name unremovable_conds (global,spec,inputof,outputof)
+  else
+    (global,spec,inputof,outputof)
+
+
 (** compute gain for each branch condition *)
 let compute_gains orig_icfg source_name target_branches unremovable_conds (global, spec, inputof, outputof) =
-	let curr_size = InterCfg.num_of_nonskip_nodes global.icfg in
-	let lst = 
-  	BatSet.fold (fun target_branch_node branch2reduction ->
-			let _ = prerr_endline (Printf.sprintf "Calculating gain: %d / %d" ((List.length branch2reduction) + 1) (BatSet.cardinal target_branches)) in 
-  		let pe_info (* global * spec, inputof * outputof *) =
-  			let inputof' = (Table.add target_branch_node Mem.bot inputof) in 
-  			partial_evaluation orig_icfg source_name unremovable_conds (global,spec,inputof',outputof)  
-  		in
-  		let after_size =
-				let (global', _, _, _) = pe_info in
-				InterCfg.num_of_nonskip_nodes global'.icfg 
-			in
-  		let reduction = (curr_size - after_size) in
-			(target_branch_node, reduction, pe_info) :: branch2reduction
-  	) target_branches []
-	in
-	List.sort (fun (_, n1, _) (_, n2, _) -> n2 - n1) lst
+  let curr_size = InterCfg.num_of_nonskip_nodes global.icfg in
+  let lst =
+    BatSet.fold (fun target_branch_node branch2reduction ->
+      let _ = prerr_endline (Printf.sprintf "Calculating gain: %d / %d" ((List.length branch2reduction) + 1) (BatSet.cardinal target_branches)) in
+      let pe_info (* global * spec, inputof * outputof *) =
+        let inputof' = (Table.add target_branch_node Mem.bot inputof) in
+        partial_evaluation orig_icfg source_name unremovable_conds (global,spec,inputof',outputof)
+      in
+      let after_size =
+        let (global', _, _, _) = pe_info in
+        InterCfg.num_of_nonskip_nodes global'.icfg
+      in
+      let reduction = (curr_size - after_size) in
+      (target_branch_node, reduction, pe_info) :: branch2reduction
+    ) target_branches []
+  in
+  List.sort (fun (_, n1, _) (_, n2, _) -> n2 - n1) lst
 
 
 let rec ask_question_greedy log_oc global branch2reduction =
-	let (target_branch_node, reduction, pe_info) =
-		try
-			prerr_endline "Line?:";
-  		let line = read_int () in 
-  		List.find (fun (target_branch_node, reduction, pe_info) -> 
-    			let target_branch_cmd = InterCfg.cmdof global.icfg target_branch_node in
-    			let loc = IntraCfg.Cmd.location_of target_branch_cmd in 
-    			loc.line = line 
-  			)	branch2reduction
-		with _ -> prerr_endline "Invalid line! The question of the highest gain is chosen."; List.hd branch2reduction   
-	in
-	let target_branch_cmd = InterCfg.cmdof global.icfg target_branch_node in
-	let answer = 
-  	match target_branch_cmd with 
-  	| IntraCfg.Cmd.Cassume (cond, loc, b) -> 	
-  		(let question = (Cil.UnOp (Cil.LNot, cond, Cil.typeOf cond)) in 
-			let _ = Printf.fprintf log_oc "\t%s at %s?" (CilHelper.s_exp question) (Cilglobal.s_location loc) in
-  		Printf.printf "%s at %s: %d ?\n" (CilHelper.s_exp question) (Cilglobal.s_location loc) reduction;
-  		try read_int () with _ -> -1) 
-		| _ -> assert false  
-	in
-	let _ = Printf.fprintf log_oc "\t%d" answer in
-	let reason =
-		 prerr_endline "Reason?:";
-		 try read_line () with _ -> " "
-	in
-	let _ = Printf.fprintf log_oc "\t%s" reason in
-	(target_branch_node, reduction, pe_info, answer, reason)
-	
-	
+  let (target_branch_node, reduction, pe_info) =
+    try
+      prerr_endline "Line?:";
+      let line = read_int () in
+      List.find (fun (target_branch_node, reduction, pe_info) ->
+          let target_branch_cmd = InterCfg.cmdof global.icfg target_branch_node in
+          let loc = IntraCfg.Cmd.location_of target_branch_cmd in
+          loc.line = line
+        )	branch2reduction
+    with _ -> prerr_endline "Invalid line! The question of the highest gain is chosen."; List.hd branch2reduction
+  in
+  let target_branch_cmd = InterCfg.cmdof global.icfg target_branch_node in
+  let answer =
+    match target_branch_cmd with
+    | IntraCfg.Cmd.Cassume (cond, loc, b) ->
+      (let question = (Cil.UnOp (Cil.LNot, cond, Cil.typeOf cond)) in
+      let _ = Printf.fprintf log_oc "\t%s at %s?" (CilHelper.s_exp question) (Cilglobal.s_location loc) in
+      Printf.printf "%s at %s: %d ?\n" (CilHelper.s_exp question) (Cilglobal.s_location loc) reduction;
+      try read_int () with _ -> -1)
+    | _ -> assert false
+  in
+  let _ = Printf.fprintf log_oc "\t%d" answer in
+  let reason =
+     prerr_endline "Reason?:";
+     try read_line () with _ -> " "
+  in
+  let _ = Printf.fprintf log_oc "\t%s" reason in
+  (target_branch_node, reduction, pe_info, answer, reason)
+
+
 exception EarlyAbort
 let rec ask_question_ilp global target_branches =
-	BatSet.fold (fun target_branch_node answers ->
-		let target_branch_cmd = InterCfg.cmdof global.icfg target_branch_node in
-		let answer = 
-    	match target_branch_cmd with 
-    	| IntraCfg.Cmd.Cassume (cond, loc, b) -> 	
-    		(let question = (Cil.UnOp (Cil.LNot, cond, Cil.typeOf cond)) in 
-    		Printf.printf "%s at %s?\n" (CilHelper.s_exp question) (Cilglobal.s_location loc);
-    		try read_int () with _ -> -1) 
-  		| _ -> assert false  
-  	in
-		let _ = if answer = -1 then raise EarlyAbort in 
-  	let reason =
-  		 prerr_endline "Reason?:";
-  		 try read_line () with _ -> " "
-  	in
-		BatSet.add (target_branch_node, answer, reason) answers 
-	) target_branches BatSet.empty
-	
-	
-(** Collect constant conditional expressions from oracle runs and perform initial partial evaluation    
+  BatSet.fold (fun target_branch_node answers ->
+    let target_branch_cmd = InterCfg.cmdof global.icfg target_branch_node in
+    let answer =
+      match target_branch_cmd with
+      | IntraCfg.Cmd.Cassume (cond, loc, b) ->
+        (let question = (Cil.UnOp (Cil.LNot, cond, Cil.typeOf cond)) in
+        Printf.printf "%s at %s?\n" (CilHelper.s_exp question) (Cilglobal.s_location loc);
+        try read_int () with _ -> -1)
+      | _ -> assert false
+    in
+    let _ = if answer = -1 then raise EarlyAbort in
+    let reason =
+       prerr_endline "Reason?:";
+       try read_line () with _ -> " "
+    in
+    BatSet.add (target_branch_node, answer, reason) answers
+  ) target_branches BatSet.empty
+
+
+(** Collect constant conditional expressions from oracle runs and perform initial partial evaluation
   NOTE: write to file source_name only for oracle runs
-	return 
-	  target_branches: IntraCfg.Cmd.t BatSet.t
-		(global,spec,inputof,outputof) after PE    
-	*)
-let ui_chisel_init source_name (global,spec,inputof,outputof) = 
-	let global_filename = "global" in
-	let orig_icfg = global.icfg in
-	(* `Assoc                                               *)
+  return
+    target_branches: IntraCfg.Cmd.t BatSet.t
+    (global,spec,inputof,outputof) after PE
+  *)
+let ui_chisel_init source_name (global,spec,inputof,outputof) =
+  let global_filename = "global" in
+  let orig_icfg = global.icfg in
+  (* `Assoc                                               *)
   (* [ ("callgraph", CallGraph.to_json global.callgraph); *)
   (*   ("cfgs", InterCfg.to_json global.icfg)]            *)
-	(* |> Yojson.Safe.pretty_to_channel stderr;             *)
-	(** get unremovable branches due to interdependency *)
-	let unremovable_conds_ref = ref BatSet.empty in 
-        let user_blacklist_ref = ref BatSet.empty in
-
-        ignore(Cil.visitCilFileSameGlobals (new unremovable_branch_collector unremovable_conds_ref) global.file); 
-        ignore(Cil.visitCilFileSameGlobals (new user_branch_collector user_blacklist_ref) global.file);
-	prerr_endline (Printf.sprintf "=== #. unremovable branches: %d === \n" (BatSet.cardinal !unremovable_conds_ref));
-	(** do pe upfront *)
-	let (global, spec, inputof, outputof) = partial_evaluation orig_icfg source_name !unremovable_conds_ref (global,spec,inputof,outputof) in
-	save_source (Printf.sprintf "%s/after_init_pe.c" !Options.marshal_dir) global orig_icfg;
-	Utils.save_global global global_filename;
-	(** instrument the code to extract values of conditional exprs (global.file will change) *)
-	let info_map_ref = ref BatMap.empty in 
-	ignore(Cil.visitCilFileSameGlobals (new Instrument.collectVisitor info_map_ref) global.file); 
-	ignore(Cil.visitCilFileSameGlobals (new Instrument.valuationVisitor !info_map_ref) global.file);
-	(** Run the instrumented code *)
-	(* clean up any previous log file *)
-	let _ = (try Unix.unlink (!Options.marshal_dir ^ "/" ^ Instrument.outfile_name) with _ -> ()) in
-	(* save instrumented source into file *) 
-	let _ = Utils.save global.file source_name in
-	let _ = Utils.save global.file (!Options.marshal_dir ^ "/instrumented_" ^ source_name) in
-	(* run the oracle script *)
-	let _ = Utils.oracle source_name in 
-	(** Get valuations of conditional exprs *)
-	let branch2vals = (* loc -> int BatSet.t *)
-		let lines = Utils.get_lines (!Options.marshal_dir ^ "/" ^ Instrument.outfile_name) in
-		List.fold_left (fun branch2vals line ->
-			try
-				let tokens = Str.split (Str.regexp " ") line in
-				let _ = assert ((List.length tokens) = 4) in 
-				let (line, file, byte, value) = 
-					((int_of_string (List.nth tokens 0)), List.nth tokens 1, (int_of_string (List.nth tokens 2)), (int_of_string (List.nth tokens 3))) 
-				in  
-				let loc = {Cil.line = line; Cil.file = file; Cil.byte = byte} in
-				let values = try BatMap.find loc branch2vals with _ -> BatSet.empty in 
-				BatMap.add loc (BatSet.add value values) branch2vals
-			with _ -> branch2vals  
-		) BatMap.empty lines
-	in 
-	let _ = if ((BatMap.cardinal branch2vals) = 0) && (not !Options.noinstrument) then failwith "Fail to instrument the program!" in
-	prerr_endline (Printf.sprintf "=== #. instrumented_branches: %d === \n" (BatMap.cardinal branch2vals));
-	(** revert the original program back *)
-	let global = Utils.load_global global_filename in
-	let _ = Utils.save global.file source_name in
+  (* |> Yojson.Safe.pretty_to_channel stderr;             *)
+  (** get unremovable branches due to interdependency *)
+  let unremovable_conds_ref = ref BatSet.empty in
+        ignore(Cil.visitCilFileSameGlobals (new unremovable_branch_collector unremovable_conds_ref) global.file);
+  prerr_endline (Printf.sprintf "=== #. unremovable branches: %d === \n" (BatSet.cardinal !unremovable_conds_ref));
+  (** do pe upfront *)
+  let (global, spec, inputof, outputof) = partial_evaluation orig_icfg source_name !unremovable_conds_ref (global,spec,inputof,outputof) in
+  save_source (Printf.sprintf "%s/after_init_pe.c" !Options.marshal_dir) global orig_icfg;
+  Utils.save_global global global_filename;
+  (** instrument the code to extract values of conditional exprs (global.file will change) *)
+  let info_map_ref = ref BatMap.empty in
+  ignore(Cil.visitCilFileSameGlobals (new Instrument.collectVisitor info_map_ref) global.file);
+  ignore(Cil.visitCilFileSameGlobals (new Instrument.valuationVisitor !info_map_ref) global.file);
+  (** Run the instrumented code *)
+  (* clean up any previous log file *)
+  let _ = (try Unix.unlink (!Options.marshal_dir ^ "/" ^ Instrument.outfile_name) with _ -> ()) in
+  (* save instrumented source into file *)
+  let _ = Utils.save global.file source_name in
+  let _ = Utils.save global.file (!Options.marshal_dir ^ "/instrumented_" ^ source_name) in
+  (* run the oracle script *)
+  let _ = Utils.oracle source_name in
+  (** Get valuations of conditional exprs *)
+  let branch2vals = (* loc -> int BatSet.t *)
+    let lines = Utils.get_lines (!Options.marshal_dir ^ "/" ^ Instrument.outfile_name) in
+    List.fold_left (fun branch2vals line ->
+      try
+        let tokens = Str.split (Str.regexp " ") line in
+        let _ = assert ((List.length tokens) = 4) in
+        let (line, file, byte, value) =
+          ((int_of_string (List.nth tokens 0)), List.nth tokens 1, (int_of_string (List.nth tokens 2)), (int_of_string (List.nth tokens 3)))
+        in
+        let loc = {Cil.line = line; Cil.file = file; Cil.byte = byte} in
+        let values = try BatMap.find loc branch2vals with _ -> BatSet.empty in
+        BatMap.add loc (BatSet.add value values) branch2vals
+      with _ -> branch2vals
+    ) BatMap.empty lines
+  in
+  let _ = if ((BatMap.cardinal branch2vals) = 0) && (not !Options.noinstrument) then failwith "Fail to instrument the program!" in
+  prerr_endline (Printf.sprintf "=== #. instrumented_branches: %d === \n" (BatMap.cardinal branch2vals));
+  (** revert the original program back *)
+  let global = Utils.load_global global_filename in
+  let _ = Utils.save global.file source_name in
 
         (** NR: Function to get candidate branches to be removed **)
-	let target_branches = get_refutable_branches global branch2vals BatSet.empty !unremovable_conds_ref !user_blacklist_ref in
-	prerr_endline (Printf.sprintf "=== #. constant branches: %d === \n" (BatSet.cardinal target_branches));
-	let branch2reduction =
-		if !Options.greedy then  
-			compute_gains orig_icfg source_name target_branches !unremovable_conds_ref (global, spec, inputof, outputof)
-		else [] 
-	in
-	(branch2vals, target_branches, !unremovable_conds_ref, !user_blacklist_ref, branch2reduction, global, spec, inputof, outputof)
-	
+  let target_branches = get_refutable_branches global branch2vals BatSet.empty !unremovable_conds_ref in
+  prerr_endline (Printf.sprintf "=== #. constant branches: %d === \n" (BatSet.cardinal target_branches));
+  let branch2reduction =
+    if !Options.greedy then
+      compute_gains orig_icfg source_name target_branches !unremovable_conds_ref (global, spec, inputof, outputof)
+    else []
+  in
+  (branch2vals, target_branches, !unremovable_conds_ref, branch2reduction, global, spec, inputof, outputof)
 
-exception Found of InterCfg.Node.t 
+
+exception Found of InterCfg.Node.t
 let node_of_cmd target_branch_cmd global =
-	let nodes = InterCfg.nodesof global.icfg in
-	try 
-  	List.iter (fun node -> 	 
-  		let cmd = InterCfg.cmdof global.icfg node in
-  		if (Pervasives.compare cmd target_branch_cmd) = 0 then raise (Found node) 
-  	) nodes;
-  	None
-	with Found node -> Some node
+  let nodes = InterCfg.nodesof global.icfg in
+  try
+    List.iter (fun node ->
+      let cmd = InterCfg.cmdof global.icfg node in
+      if (Pervasives.compare cmd target_branch_cmd) = 0 then raise (Found node)
+    ) nodes;
+    None
+  with Found node -> Some node
 
 (** Main algorithm: *)
 (* P <- P_orig *)
@@ -749,155 +731,155 @@ let node_of_cmd target_branch_cmd global =
 (* write to file source_name only when terminating *)
 (* "target_branches" shrinks as iterations go by. *)
 (* invariant: target_branches contain nodes of which commands exist. *)
-let rec ui_chisel_greedy log_oc source_name orig_icfg (iter,already_covered,branch2vals,target_branches,unremovable_conds,user_blacklist_conds,branch2reduction)  (global,spec,inputof,outputof) =
-	if (BatSet.cardinal target_branches) = 0 then 
-		let _ = prerr_endline "No questions to be answered!" in
-		let _ = save_source source_name global orig_icfg in 
-		(global,spec,inputof,outputof)
-	else  
-	(** logging *)
-	let curr_iter_source_name = Printf.sprintf "%s/iter_%d_%s" !Options.marshal_dir iter source_name in
-	let _ = save_source curr_iter_source_name global orig_icfg in
-	let _ = Printf.fprintf log_oc "%d" iter in 
-	
-	
-	(** store the current programs size *)
-	let curr_size = InterCfg.num_of_nonskip_nodes global.icfg in
-	prerr_endline (Printf.sprintf "======== UI CHISEL : iteration - %d (size: %d, #questions: %d) =========" iter curr_size (BatSet.cardinal target_branches)); 	
-	
-	(* print all questions and gains *)
-	let _ = 
-		prerr_endline "======== Questions and Gains ========";
-		List.iter (fun (target_branch_node, reduction, _) ->
-			let target_branch_cmd = InterCfg.cmdof global.icfg target_branch_node in
-			match target_branch_cmd with 
-  		| IntraCfg.Cmd.Cassume (cond, loc, b) ->
-				let question = (Cil.UnOp (Cil.LNot, cond, Cil.typeOf cond)) in
-				prerr_endline (Printf.sprintf "%s at %s: %d ?" (CilHelper.s_exp question) (Cilglobal.s_location loc) reduction)
-			| _ -> ()
-		) branch2reduction;
-		prerr_endline "=====================================\n";
-		let max_gain, sum_gain =
-  		List.fold_left (fun (max_gain, sum_gain) (_, reduction, _) -> 
-  			((if max_gain < reduction then reduction else max_gain), sum_gain + reduction)
-			) (0, 0) branch2reduction
-  	in
-		Printf.fprintf log_oc "\t%d\t%d\t%.1f" (List.length branch2reduction) max_gain ((float_of_int sum_gain) /. (float_of_int (List.length branch2reduction))) 
-	in
-	(* ask the user *)
-	let (target_branch_node, reduction, pe_info, answer, reason) = ask_question_greedy log_oc global branch2reduction in 
-	let already_covered = BatSet.add target_branch_node already_covered in
-	if answer = 1 then (* user confirms this likely invariant *)
-		let (global, spec, inputof, outputof) = pe_info in
-		(* recompute target_branches: some branches may have been removed by the partial evaluation *) 
-		let target_branches = get_refutable_branches global branch2vals already_covered unremovable_conds user_blacklist_conds in
-		(* recompute the gains *)
-		let branch2reduction = compute_gains orig_icfg source_name target_branches unremovable_conds (global, spec, inputof, outputof) in
-		(* logging *) 
-		let next_n_pid = List.length (InterCfg.pidsof global.icfg) in  
-		let next_size = InterCfg.num_of_nonskip_nodes global.icfg in
-		let _ = Printf.fprintf log_oc "\t%d\t%d\n" next_n_pid next_size in
-		ui_chisel_greedy log_oc source_name orig_icfg (iter+1,already_covered,branch2vals,target_branches,unremovable_conds,user_blacklist_conds,branch2reduction) (global,spec,inputof,outputof)
-	else if answer = 0 then (* user does not confirm the likely invariant. *)
-		let target_branches' = get_refutable_branches global branch2vals already_covered unremovable_conds user_blacklist_conds in
-		let delta_target_branches = BatSet.diff target_branches' target_branches in
-		let delta_branch2reduction = compute_gains orig_icfg source_name delta_target_branches unremovable_conds (global, spec, inputof, outputof) in
-		let branch2reduction = List.filter (fun (n,_,_) -> (Pervasives.compare n target_branch_node) != 0) (delta_branch2reduction @ branch2reduction) in
-		let branch2reduction = List.sort (fun (_, n1, _) (_, n2, _) -> n2 - n1) branch2reduction in  
-		(* logging *) 
-		let next_n_pid = List.length (InterCfg.pidsof global.icfg) in  
-		let next_size = InterCfg.num_of_nonskip_nodes global.icfg in
-		let _ = Printf.fprintf log_oc "\t%d\t%d\n" next_n_pid next_size in
-		ui_chisel_greedy log_oc source_name orig_icfg (iter+1,already_covered,branch2vals,target_branches',unremovable_conds,user_blacklist_conds,branch2reduction) (global,spec,inputof,outputof)		
-	else (* user wants to stop: save the file and quit. *)
-		let _ = save_source source_name global orig_icfg in
-		let _ = prerr_endline "Chisel is asked to stop the process!" in 
-		(global,spec,inputof,outputof)
+let rec ui_chisel_greedy log_oc source_name orig_icfg (iter,already_covered,branch2vals,target_branches,unremovable_conds,branch2reduction)  (global,spec,inputof,outputof) =
+  if (BatSet.cardinal target_branches) = 0 then
+    let _ = prerr_endline "No questions to be answered!" in
+    let _ = save_source source_name global orig_icfg in
+    (global,spec,inputof,outputof)
+  else
+  (** logging *)
+  let curr_iter_source_name = Printf.sprintf "%s/iter_%d_%s" !Options.marshal_dir iter source_name in
+  let _ = save_source curr_iter_source_name global orig_icfg in
+  let _ = Printf.fprintf log_oc "%d" iter in
 
 
-(* Iter	#Questions	Avg gain 	Question  Answer	Reason	#func	#CFG nodes *)
-let rec ui_chisel_ilp log_oc source_name orig_icfg (iter,already_covered,branch2vals,target_branches,unremovable_conds,user_blacklist_conds,branch2reduction)  (global,spec,inputof,outputof) =
-	if (BatSet.cardinal target_branches) = 0 then 
-		let _ = prerr_endline "No questions to be answered!" in
-		let _ = save_source source_name global orig_icfg in 
-		(global,spec,inputof,outputof)
-	else  
-	(** logging *)
-	let curr_iter_source_name = Printf.sprintf "%s/iter_%d_%s" !Options.marshal_dir iter source_name in
-	let _ = save_source curr_iter_source_name global orig_icfg in
+  (** store the current programs size *)
+  let curr_size = InterCfg.num_of_nonskip_nodes global.icfg in
+  prerr_endline (Printf.sprintf "======== UI CHISEL : iteration - %d (size: %d, #questions: %d) =========" iter curr_size (BatSet.cardinal target_branches));
 
-	(** store the current programs size *)
-	let curr_size = InterCfg.num_of_nonskip_nodes global.icfg in
-	prerr_endline (Printf.sprintf "======== UI CHISEL : iteration - %d (size: %d, #questions: %d) =========" iter curr_size (BatSet.cardinal target_branches)); 	
-	
-	(* print all questions and gains *)
-	prerr_endline "========== Optimal Questions =========";
-	let optimal_questions, ratio =
-		let exclude_nodes = get_exclude_nodes global orig_icfg in  
-		Optimalcut.get_optimal_questions orig_icfg global target_branches exclude_nodes
-	in
-	if ratio = 0. then
-		let _ = prerr_endline "No feasible solutions are found!" in
-		let _ = save_source source_name global orig_icfg in 
-		(global,spec,inputof,outputof)
-	else 
-	let _ =
-		BatSet.iter (fun target_branch_node ->
-			let target_branch_cmd = InterCfg.cmdof global.icfg target_branch_node in
-			match target_branch_cmd with 
-  		| IntraCfg.Cmd.Cassume (cond, loc, b) ->
-				let question = (Cil.UnOp (Cil.LNot, cond, Cil.typeOf cond)) in
-				prerr_endline (Printf.sprintf "%s at %s?" (CilHelper.s_exp question) (Cilglobal.s_location loc))
-			| _ -> ()
-		) optimal_questions;
-		prerr_endline "=====================================\n";
-	in
-	(* ask the user - answers: (target_branch_node, answer, reason) BatSet.t *)
-	try 
-		let answers = ask_question_ilp global optimal_questions in 
-		let curr_nfunc, curr_size =
-			(List.length (InterCfg.pidsof global.icfg), InterCfg.num_of_nonskip_nodes global.icfg) 
-		in
-  	let (global, spec, inputof, outputof) =
-			(* TODO: optimize (all answers 0) *)
-			let inputof' =
-				BatSet.fold (fun (target_branch_node, answer, reason) inputof' ->
-					if answer = 1 then (Table.add target_branch_node Mem.bot inputof')
-					else inputof'
-				) answers inputof
-			in 
-			partial_evaluation orig_icfg source_name unremovable_conds (global,spec,inputof',outputof)
-		in
-		let after_nfunc, after_size =
-			(List.length (InterCfg.pidsof global.icfg), InterCfg.num_of_nonskip_nodes global.icfg) 
-		in
-		(* logging *)
-		prerr_endline (Printf.sprintf "Actual reduction: %d funcs, %d instrs \n" (curr_nfunc - after_nfunc) (curr_size - after_size));
-		BatSet.iter (fun (target_branch_node, answer, reason) ->
-			let target_branch_cmd = InterCfg.cmdof global.icfg target_branch_node in
-			let _ = Printf.fprintf log_oc "%4d\t%10d\t%.1f" iter (BatSet.cardinal optimal_questions) ratio in
-			let question, loc = 
-  			match target_branch_cmd with 
-      	| IntraCfg.Cmd.Cassume (cond, loc, b) -> 	
-      		let question = (Cil.UnOp (Cil.LNot, cond, Cil.typeOf cond)) in
-  				(question, loc)  
-    		| _ -> assert false
-			in
-			let _ = Printf.fprintf log_oc "\t%s at %s?" (CilHelper.s_exp question) (Cilglobal.s_location loc) in
-			let _ = Printf.fprintf log_oc "\t%d" answer in
-			let _ = Printf.fprintf log_oc "\t%s" reason in
-  		Printf.fprintf log_oc "\t%d\t%d\n" after_nfunc after_size
-		) answers; 
-		let already_covered = BatSet.union optimal_questions already_covered in
-		let target_branches = get_refutable_branches global branch2vals already_covered unremovable_conds user_blacklist_conds in
-		ui_chisel_ilp log_oc source_name orig_icfg (iter+1,already_covered,branch2vals,target_branches,unremovable_conds,user_blacklist_conds,branch2reduction) (global,spec,inputof,outputof)		 
-	with EarlyAbort ->
-		(* user wants to stop: save the file and quit. *)
-		let _ = save_source source_name global orig_icfg in
-		let _ = prerr_endline "Chisel is asked to stop the process!" in 
-		(global,spec,inputof,outputof)	 
- 
-	
+  (* print all questions and gains *)
+  let _ =
+    prerr_endline "======== Questions and Gains ========";
+    List.iter (fun (target_branch_node, reduction, _) ->
+      let target_branch_cmd = InterCfg.cmdof global.icfg target_branch_node in
+      match target_branch_cmd with
+      | IntraCfg.Cmd.Cassume (cond, loc, b) ->
+        let question = (Cil.UnOp (Cil.LNot, cond, Cil.typeOf cond)) in
+        prerr_endline (Printf.sprintf "%s at %s: %d ?" (CilHelper.s_exp question) (Cilglobal.s_location loc) reduction)
+      | _ -> ()
+    ) branch2reduction;
+    prerr_endline "=====================================\n";
+    let max_gain, sum_gain =
+      List.fold_left (fun (max_gain, sum_gain) (_, reduction, _) ->
+        ((if max_gain < reduction then reduction else max_gain), sum_gain + reduction)
+      ) (0, 0) branch2reduction
+    in
+    Printf.fprintf log_oc "\t%d\t%d\t%.1f" (List.length branch2reduction) max_gain ((float_of_int sum_gain) /. (float_of_int (List.length branch2reduction)))
+  in
+  (* ask the user *)
+  let (target_branch_node, reduction, pe_info, answer, reason) = ask_question_greedy log_oc global branch2reduction in
+  let already_covered = BatSet.add target_branch_node already_covered in
+  if answer = 1 then (* user confirms this likely invariant *)
+    let (global, spec, inputof, outputof) = pe_info in
+    (* recompute target_branches: some branches may have been removed by the partial evaluation *)
+    let target_branches = get_refutable_branches global branch2vals already_covered unremovable_conds in
+    (* recompute the gains *)
+    let branch2reduction = compute_gains orig_icfg source_name target_branches unremovable_conds (global, spec, inputof, outputof) in
+    (* logging *)
+    let next_n_pid = List.length (InterCfg.pidsof global.icfg) in
+    let next_size = InterCfg.num_of_nonskip_nodes global.icfg in
+    let _ = Printf.fprintf log_oc "\t%d\t%d\n" next_n_pid next_size in
+    ui_chisel_greedy log_oc source_name orig_icfg (iter+1,already_covered,branch2vals,target_branches,unremovable_conds,branch2reduction) (global,spec,inputof,outputof)
+  else if answer = 0 then (* user does not confirm the likely invariant. *)
+    let target_branches' = get_refutable_branches global branch2vals already_covered unremovable_conds in
+    let delta_target_branches = BatSet.diff target_branches' target_branches in
+    let delta_branch2reduction = compute_gains orig_icfg source_name delta_target_branches unremovable_conds (global, spec, inputof, outputof) in
+    let branch2reduction = List.filter (fun (n,_,_) -> (Pervasives.compare n target_branch_node) != 0) (delta_branch2reduction @ branch2reduction) in
+    let branch2reduction = List.sort (fun (_, n1, _) (_, n2, _) -> n2 - n1) branch2reduction in
+    (* logging *)
+    let next_n_pid = List.length (InterCfg.pidsof global.icfg) in
+    let next_size = InterCfg.num_of_nonskip_nodes global.icfg in
+    let _ = Printf.fprintf log_oc "\t%d\t%d\n" next_n_pid next_size in
+    ui_chisel_greedy log_oc source_name orig_icfg (iter+1,already_covered,branch2vals,target_branches',unremovable_conds,branch2reduction) (global,spec,inputof,outputof)
+  else (* user wants to stop: save the file and quit. *)
+    let _ = save_source source_name global orig_icfg in
+    let _ = prerr_endline "Chisel is asked to stop the process!" in
+    (global,spec,inputof,outputof)
+
+
+(* Iter	#Questions	Avg gain  Question  Answer	Reason	#func	#CFG nodes *)
+let rec ui_chisel_ilp log_oc source_name orig_icfg (iter,already_covered,branch2vals,target_branches,unremovable_conds,branch2reduction)  (global,spec,inputof,outputof) =
+  if (BatSet.cardinal target_branches) = 0 then
+    let _ = prerr_endline "No questions to be answered!" in
+    let _ = save_source source_name global orig_icfg in
+    (global,spec,inputof,outputof)
+  else
+  (** logging *)
+  let curr_iter_source_name = Printf.sprintf "%s/iter_%d_%s" !Options.marshal_dir iter source_name in
+  let _ = save_source curr_iter_source_name global orig_icfg in
+
+  (** store the current programs size *)
+  let curr_size = InterCfg.num_of_nonskip_nodes global.icfg in
+  prerr_endline (Printf.sprintf "======== UI CHISEL : iteration - %d (size: %d, #questions: %d) =========" iter curr_size (BatSet.cardinal target_branches));
+
+  (* print all questions and gains *)
+  prerr_endline "========== Optimal Questions =========";
+  let optimal_questions, ratio =
+    let exclude_nodes = get_exclude_nodes global orig_icfg in
+    Optimalcut.get_optimal_questions orig_icfg global target_branches exclude_nodes
+  in
+  if ratio = 0. then
+    let _ = prerr_endline "No feasible solutions are found!" in
+    let _ = save_source source_name global orig_icfg in
+    (global,spec,inputof,outputof)
+  else
+  let _ =
+    BatSet.iter (fun target_branch_node ->
+      let target_branch_cmd = InterCfg.cmdof global.icfg target_branch_node in
+      match target_branch_cmd with
+      | IntraCfg.Cmd.Cassume (cond, loc, b) ->
+        let question = (Cil.UnOp (Cil.LNot, cond, Cil.typeOf cond)) in
+        prerr_endline (Printf.sprintf "%s at %s?" (CilHelper.s_exp question) (Cilglobal.s_location loc))
+      | _ -> ()
+    ) optimal_questions;
+    prerr_endline "=====================================\n";
+  in
+  (* ask the user - answers: (target_branch_node, answer, reason) BatSet.t *)
+  try
+    let answers = ask_question_ilp global optimal_questions in
+    let curr_nfunc, curr_size =
+      (List.length (InterCfg.pidsof global.icfg), InterCfg.num_of_nonskip_nodes global.icfg)
+    in
+    let (global, spec, inputof, outputof) =
+      (* TODO: optimize (all answers 0) *)
+      let inputof' =
+        BatSet.fold (fun (target_branch_node, answer, reason) inputof' ->
+          if answer = 1 then (Table.add target_branch_node Mem.bot inputof')
+          else inputof'
+        ) answers inputof
+      in
+      partial_evaluation orig_icfg source_name unremovable_conds (global,spec,inputof',outputof)
+    in
+    let after_nfunc, after_size =
+      (List.length (InterCfg.pidsof global.icfg), InterCfg.num_of_nonskip_nodes global.icfg)
+    in
+    (* logging *)
+    prerr_endline (Printf.sprintf "Actual reduction: %d funcs, %d instrs \n" (curr_nfunc - after_nfunc) (curr_size - after_size));
+    BatSet.iter (fun (target_branch_node, answer, reason) ->
+      let target_branch_cmd = InterCfg.cmdof global.icfg target_branch_node in
+      let _ = Printf.fprintf log_oc "%4d\t%10d\t%.1f" iter (BatSet.cardinal optimal_questions) ratio in
+      let question, loc =
+        match target_branch_cmd with
+        | IntraCfg.Cmd.Cassume (cond, loc, b) ->
+          let question = (Cil.UnOp (Cil.LNot, cond, Cil.typeOf cond)) in
+          (question, loc)
+        | _ -> assert false
+      in
+      let _ = Printf.fprintf log_oc "\t%s at %s?" (CilHelper.s_exp question) (Cilglobal.s_location loc) in
+      let _ = Printf.fprintf log_oc "\t%d" answer in
+      let _ = Printf.fprintf log_oc "\t%s" reason in
+      Printf.fprintf log_oc "\t%d\t%d\n" after_nfunc after_size
+    ) answers;
+    let already_covered = BatSet.union optimal_questions already_covered in
+    let target_branches = get_refutable_branches global branch2vals already_covered unremovable_conds in
+    ui_chisel_ilp log_oc source_name orig_icfg (iter+1,already_covered,branch2vals,target_branches,unremovable_conds,branch2reduction) (global,spec,inputof,outputof)
+  with EarlyAbort ->
+    (* user wants to stop: save the file and quit. *)
+    let _ = save_source source_name global orig_icfg in
+    let _ = prerr_endline "Chisel is asked to stop the process!" in
+    (global,spec,inputof,outputof)
+
+
 let do_analysis : Global.t -> Global.t * Table.t * Table.t * Report.query list
 = fun global ->
   prerr_endline("STARTED");
@@ -912,36 +894,36 @@ let do_analysis : Global.t -> Global.t * Table.t * Table.t * Report.query list
     Spec.unsound_update; Spec.unsound_bitwise; } in
   cond !Options.marshal_in marshal_in (Analysis.perform spec) global
   |> opt !Options.marshal_out marshal_out
-	|> (fun (global,inputof,outputof) ->
-			 let orig_cfg = global.icfg in 
-		   let source_name = try List.hd !Frontend.files with _ -> assert false in
-			 let log_oc = 
-				 let log_file_name = (!Options.marshal_dir ^ "/log_info.txt") in 
-				 (try Unix.unlink log_file_name with _ -> ());
-    	 	 open_out_gen [Open_text; Open_creat; Open_append] 0o755 log_file_name 
-    	 in
-			 let n_pid = List.length (InterCfg.pidsof global.icfg) in  
-			 let pgm_size = InterCfg.num_of_nonskip_nodes global.icfg in
-			 Printf.fprintf log_oc "%s - #func: %d \t #instrs : %d\n" source_name n_pid pgm_size; 
-			 let (branch2vals, target_branches, unremovable_conds, user_blacklist_conds, branch2reduction, global, spec, inputof, outputof) = 
-				 ui_chisel_init source_name (global,spec,inputof,outputof) 
-			 in
-			 let n_pid = List.length (InterCfg.pidsof global.icfg) in  
-			 let pgm_size = InterCfg.num_of_nonskip_nodes global.icfg in
-			 let _ =
-				 Printf.fprintf log_oc "After initial PE: #func: %d \t #instrs : %d\n" n_pid pgm_size;
-				 if (!Options.greedy) then  
-			   	 Printf.fprintf log_oc "Iter\t#Questions\tMax gain\tAvg gain\tQuestion\tAnswer\tReason\t#func\t#instrs\n"
-				 else  
-					 Printf.fprintf log_oc "Iter\t#Questions\tAvg gain\tQuestion\tAnswer\tReason\t#func\t#instrs\n"
-			 in
-			 let _ = 
-				  (if (!Options.greedy) then ui_chisel_greedy else ui_chisel_ilp) log_oc source_name orig_cfg 
-					  (1, BatSet.empty, branch2vals, target_branches, unremovable_conds, user_blacklist_conds, branch2reduction) 
-					  (global,spec,inputof,outputof)
-			 in
-			 close_out log_oc; 
-			 exit 0 
-		 )
+  |> (fun (global,inputof,outputof) ->
+       let orig_cfg = global.icfg in
+       let source_name = try List.hd !Frontend.files with _ -> assert false in
+       let log_oc =
+         let log_file_name = (!Options.marshal_dir ^ "/log_info.txt") in
+         (try Unix.unlink log_file_name with _ -> ());
+         open_out_gen [Open_text; Open_creat; Open_append] 0o755 log_file_name
+       in
+       let n_pid = List.length (InterCfg.pidsof global.icfg) in
+       let pgm_size = InterCfg.num_of_nonskip_nodes global.icfg in
+       Printf.fprintf log_oc "%s - #func: %d \t #instrs : %d\n" source_name n_pid pgm_size;
+       let (branch2vals, target_branches, unremovable_conds, branch2reduction, global, spec, inputof, outputof) =
+         ui_chisel_init source_name (global,spec,inputof,outputof)
+       in
+       let n_pid = List.length (InterCfg.pidsof global.icfg) in
+       let pgm_size = InterCfg.num_of_nonskip_nodes global.icfg in
+       let _ =
+         Printf.fprintf log_oc "After initial PE: #func: %d \t #instrs : %d\n" n_pid pgm_size;
+         if (!Options.greedy) then
+           Printf.fprintf log_oc "Iter\t#Questions\tMax gain\tAvg gain\tQuestion\tAnswer\tReason\t#func\t#instrs\n"
+         else
+           Printf.fprintf log_oc "Iter\t#Questions\tAvg gain\tQuestion\tAnswer\tReason\t#func\t#instrs\n"
+       in
+       let _ =
+          (if (!Options.greedy) then ui_chisel_greedy else ui_chisel_ilp) log_oc source_name orig_cfg
+            (1, BatSet.empty, branch2vals, target_branches, unremovable_conds, branch2reduction)
+            (global,spec,inputof,outputof)
+       in
+       close_out log_oc;
+       exit 0
+     )
   |> StepManager.stepf true "Generate Alarm Report" (fun (global,spec,inputof,outputof) ->
       (global,inputof,outputof,inspect_alarm global spec inputof outputof))

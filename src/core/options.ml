@@ -1,3 +1,4 @@
+
 (***********************************************************************)
 (*                                                                     *)
 (* Copyright (c) 2007-present.                                         *)
@@ -15,7 +16,7 @@ let il = ref false
 let cfg = ref false
 let dug = ref false
 let optil = ref true
-
+                
 (* Context & Flow Sensitivity *)
 let inline = ref []
 let inline_size = ref 100000
@@ -84,6 +85,7 @@ let oracle = ref "./test.sh"
 let greedy = ref false 
 let ilp_timeout = ref 10 
 let noinstrument = ref false 
+let force_branch = ref "None"
 
 let opts =
   [
@@ -139,4 +141,5 @@ let opts =
   ("-marshal_out", (Arg.Set marshal_out), "Write analysis results to marshaled data");
   ("-marshal_dir", (Arg.String (fun s -> marshal_dir := s)), "Directory where the marshaled data exists (default: marshal/)");
   ("-int_overflow", (Arg.Set int_overflow), "Consider integer overflow");
+  ("-ground_truth", (Arg.String (fun s -> force_branch := s)), "Ask questions only about the reported ground truth \"branch_line branch_line ... \"");
   ]
