@@ -882,7 +882,6 @@ let rec ui_chisel_ilp log_oc source_name orig_icfg (iter,already_covered,branch2
 
 let do_analysis : Global.t -> Global.t * Table.t * Table.t * Report.query list
 = fun global ->
-  prerr_endline("STARTED");
   let _ = prerr_memory_usage () in
   let locset = get_locset global.mem in
   let locset_fs = PartialFlowSensitivity.select global locset in
