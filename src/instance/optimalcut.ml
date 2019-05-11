@@ -17,12 +17,12 @@ let string_of_inter_node pid2id node =
 	let node_str =
 		try  
 		(* Printf.sprintf "v_%d_%s" (BatMap.find pid pid2id) (IntraCfg.Node.to_string cfgnode) *)
-		Printf.sprintf "%s_%s" pid (IntraCfg.Node.to_string cfgnode)
+		Printf.sprintf "%s#%s" pid (IntraCfg.Node.to_string cfgnode)
 		with _ -> failwith pid 
 	in
 	node_str
 
-let string_of_inter_edge pid2id node = Printf.sprintf "e_%s" (string_of_inter_node pid2id node)
+let string_of_inter_edge pid2id node = Printf.sprintf "e#%s" (string_of_inter_node pid2id node)
 
 let create_cplex gain cost global target_branches nodes pid2id =
 	let icfg = global.icfg in 
