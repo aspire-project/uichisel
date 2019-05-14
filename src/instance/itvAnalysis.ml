@@ -1,3 +1,4 @@
+
 (***********************************************************************)
 (*                                                                     *)
 (* Copyright (c) 2007-present.                                         *)
@@ -391,6 +392,11 @@ let contains s1 s2 =
         try ignore (Str.search_forward re s1 0); true
         with Not_found -> false
 
+let rec find_index x lst =
+    match lst with
+    | [] -> raise (Failure "Not Found")
+    | h :: t -> if x = h then 0 else 1 + find_index x t
+                                              
 let get_refutable_branches global branch2vals already_covered unremovable_conds=
   if (String.compare !Options.force_branch "None") = 0 then
     (* all branch conditions *)
@@ -407,7 +413,7 @@ let get_refutable_branches global branch2vals already_covered unremovable_conds=
             | _ -> target_branches
         ) BatSet.empty nodes
     in
-
+    
     (** Remaining only constant branch conditions + ones not exercised during oracle runs *)
     let target_branches = if !Options.noinstrument then target_branches else
       BatSet.filter (fun node ->
@@ -452,7 +458,22 @@ let get_refutable_branches global branch2vals already_covered unremovable_conds=
   else
     let target_branches =
       let nodes = InterCfg.nodesof global.icfg in
-      let lines = List.map int_of_string (Str.split (Str.regexp " ") !Options.force_branch) in
+      let lines = ref [] in 
+      let conds = ref [] in 
+
+      let _ = List.iter (fun s ->
+                  if String.get s 0 = '.' then
+                    (
+                      let substr = String.sub s 1 ((String.length s) - 1) in
+                      lines := substr :: !lines ;
+                      conds := false :: !conds ;
+                    )
+                  else
+                    (
+                      lines := s :: !lines ;
+                      conds := true :: !conds ;
+                    )
+                ) (Str.split (Str.regexp " ") !Options.force_branch) in
 
       List.fold_left (fun target_branches node ->
           if (String.compare (InterCfg.Node.get_pid node) InterCfg.global_proc) = 0 then target_branches
@@ -462,11 +483,16 @@ let get_refutable_branches global branch2vals already_covered unremovable_conds=
             | IntraCfg.Cmd.Cassume (e, loc, b) ->
                let str_loc = CilHelper.s_location loc in
                let tokens = (Str.split (Str.regexp ":") str_loc) in
-               let line_no = int_of_string(List.nth tokens 1) in
-
+               let line_no = List.nth tokens 1 in
                if (BatSet.mem node already_covered) then target_branches
-               else if (List.mem line_no lines) then
-                 BatSet.add node target_branches
+               else if (List.mem line_no !lines) then
+                 (
+                   let index = find_index line_no !lines in
+                   if b = (List.nth !conds index) then
+                       BatSet.add node target_branches
+                   else
+                     target_branches
+                 )
                else
                  target_branches
             | _ -> target_branches
@@ -799,6 +825,7 @@ let rec ui_chisel_greedy log_oc source_name orig_icfg (iter,already_covered,bran
 
 (* Iter	#Questions	Avg gain  Question  Answer	Reason	#func	#CFG nodes *)
 let rec ui_chisel_ilp log_oc source_name orig_icfg (iter,already_covered,branch2vals,target_branches,unremovable_conds,branch2reduction)  (global,spec,inputof,outputof) =
+  
   if (BatSet.cardinal target_branches) = 0 then
     let _ = prerr_endline "No questions to be answered!" in
     let _ = save_source source_name global orig_icfg in
